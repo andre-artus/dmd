@@ -4,9 +4,9 @@
 # All Rights Reserved
 # written by Walter Bright
 # http://www.digitalmars.com
-# License for redistribution is by either the Artistic License
-# in artistic.txt, or the GNU General Public License in gnu.txt.
-# See the included readme.txt for details.
+# Distributed under the Boost Software License, Version 1.0.
+# http://www.boost.org/LICENSE_1_0.txt
+# https://github.com/D-Programming-Language/dmd/blob/master/src/win32.mak
 #
 # Dependencies:
 #
@@ -132,7 +132,7 @@ DMDMAKE=$(MAKE) -fwin32.mak C=$C TK=$(TK) ROOT=$(ROOT)
 FRONTOBJ= enum.obj struct.obj dsymbol.obj import.obj id.obj \
 	staticassert.obj identifier.obj mtype.obj expression.obj \
 	optimize.obj template.obj lexer.obj declaration.obj cast.obj \
-	init.obj func.obj utf.obj parse.obj statement.obj \
+	init.obj func.obj nogc.obj utf.obj parse.obj statement.obj \
 	constfold.obj version.obj inifile.obj cppmangle.obj \
 	module.obj scope.obj cond.obj inline.obj opover.obj \
 	entity.obj class.obj mangle.obj attrib.obj impcnvtab.obj \
@@ -140,7 +140,8 @@ FRONTOBJ= enum.obj struct.obj dsymbol.obj import.obj id.obj \
 	interpret.obj ctfeexpr.obj traits.obj aliasthis.obj \
 	builtin.obj clone.obj arrayop.obj \
 	json.obj unittests.obj imphint.obj argtypes.obj apply.obj sapply.obj \
-	sideeffect.obj intrange.obj canthrow.obj target.obj
+	sideeffect.obj intrange.obj canthrow.obj target.obj nspace.obj \
+	errors.obj
 
 # Glue layer
 GLUEOBJ=glue.obj msc.obj s2ir.obj todt.obj e2ir.obj tocsym.obj \
@@ -167,7 +168,7 @@ BACKOBJ= go.obj gdag.obj gother.obj gflow.obj gloop.obj var.obj el.obj \
 GCOBJS=rmem.obj
 # Removed garbage collector (look in history)
 #GCOBJS=dmgcmem.obj bits.obj win32.obj gc.obj
-ROOTOBJS= man.obj port.obj \
+ROOTOBJS= man.obj port.obj checkedint.obj \
 	stringtable.obj response.obj async.obj speller.obj aav.obj outbuffer.obj \
 	object.obj filename.obj file.obj \
 	$(GCOBJS)
@@ -179,13 +180,13 @@ SRCS= mars.c enum.c struct.c dsymbol.c import.c idgen.c impcnvgen.c utf.h \
 	cond.h cond.c link.c aggregate.h staticassert.h parse.c statement.c \
 	constfold.c version.h version.c inifile.c staticassert.c \
 	module.c scope.c init.h init.c attrib.h attrib.c opover.c \
-	class.c mangle.c func.c inline.c access.c complex_t.h cppmangle.c \
+	class.c mangle.c func.c nogc.c inline.c access.c complex_t.h cppmangle.c \
 	identifier.h parse.h scope.h enum.h import.h \
 	mars.h module.h mtype.h dsymbol.h \
 	declaration.h lexer.h expression.h statement.h doc.h doc.c \
 	macro.h macro.c hdrgen.h hdrgen.c arraytypes.h \
 	delegatize.c interpret.c ctfeexpr.c traits.c builtin.c \
-	clone.c lib.h arrayop.c \
+	clone.c lib.h arrayop.c nspace.h nspace.c errors.h errors.c \
 	aliasthis.h aliasthis.c json.h json.c unittests.c imphint.c argtypes.c \
 	apply.c sapply.c sideeffect.c ctfe.h \
 	intrange.h intrange.c canthrow.c target.c target.h visitor.h
@@ -228,11 +229,13 @@ TKSRC= $(TK)\filespec.h $(TK)\mem.h $(TK)\list.h $(TK)\vec.h $(TKSRCC)
 ROOTSRCC=$(ROOT)\rmem.c $(ROOT)\stringtable.c \
 	$(ROOT)\man.c $(ROOT)\port.c $(ROOT)\async.c $(ROOT)\response.c \
 	$(ROOT)\speller.c $(ROOT)\aav.c $(ROOT)\longdouble.c \
+	$(ROOT)\checkedint.c \
 	$(ROOT)\outbuffer.c $(ROOT)\object.c $(ROOT)\filename.c $(ROOT)\file.c
 ROOTSRC= $(ROOT)\root.h \
 	$(ROOT)\rmem.h $(ROOT)\port.h \
 	$(ROOT)\stringtable.h \
 	$(ROOT)\async.h \
+	$(ROOT)\checkedint.h \
 	$(ROOT)\speller.h \
 	$(ROOT)\aav.h \
 	$(ROOT)\longdouble.h \
@@ -254,9 +257,6 @@ CH= $C\cc.h $C\global.h $C\oper.h $C\code.h $C\code_x86.h $C\type.h $C\dt.h $C\c
 
 # Makefiles
 MAKEFILES=win32.mak posix.mak osmodel.mak
-
-# Unit tests
-TESTS=UTFTest.exe # LexerTest.exe
 
 ############################## Release Targets ###############################
 
@@ -322,9 +322,8 @@ install-copy:
 	$(CP) $(TKSRC)              $(INSTALL)\src\dmd\tk
 	$(CP) $(BACKSRC)            $(INSTALL)\src\dmd\backend
 	$(CP) $(MAKEFILES)          $(INSTALL)\src\dmd
-	$(CP) gpl.txt               $(INSTALL)\src\dmd\gpl.txt
 	$(CP) readme.txt            $(INSTALL)\src\dmd\readme.txt
-	$(CP) artistic.txt          $(INSTALL)\src\dmd\artistic.txt
+	$(CP) boostlicense.txt      $(INSTALL)\src\dmd\boostlicense.txt
 	$(CP) backendlicense.txt    $(INSTALL)\src\dmd\backendlicense.txt
 
 install-clean:
@@ -621,6 +620,9 @@ aav.obj : $(ROOT)\aav.h $(ROOT)\aav.c
 async.obj : $(ROOT)\async.h $(ROOT)\async.c
 	$(CC) -c $(CFLAGS) $(ROOT)\async.c
 
+checkedint.obj : $(ROOT)\checkedint.h $(ROOT)\checkedint.c
+	$(CC) -c $(CFLAGS) $(ROOT)\checkedint.c
+
 dmgcmem.obj : $(ROOT)\dmgcmem.c
 	$(CC) -c $(CFLAGS) $(ROOT)\dmgcmem.c
 
@@ -680,6 +682,7 @@ canthrow.obj : $(TOTALH) canthrow.c
 cast.obj : $(TOTALH) expression.h mtype.h cast.c
 class.obj : $(TOTALH) enum.h class.c
 clone.obj : $(TOTALH) clone.c
+errors.obj : $(TOTALH) errors.h errors.c
 constfold.obj : $(TOTALH) expression.h constfold.c
 cond.obj : $(TOTALH) identifier.h declaration.h cond.h cond.c
 cppmangle.obj : $(TOTALH) mtype.h declaration.h mars.h
@@ -706,6 +709,7 @@ libomf.obj : $(TOTALH) lib.h libomf.c
 link.obj : $(TOTALH) link.c
 macro.obj : $(TOTALH) macro.h macro.c
 mangle.obj : $(TOTALH) dsymbol.h declaration.h mangle.c
+nspace.obj : $(TOTALH) nspace.c
 opover.obj : $(TOTALH) expression.h opover.c
 optimize.obj : $(TOTALH) expression.h optimize.c
 parse.obj : $(TOTALH) attrib.h lexer.h parse.h parse.c

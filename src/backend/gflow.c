@@ -1,5 +1,5 @@
 // Copyright (C) 1985-1998 by Symantec
-// Copyright (C) 2000-2009 by Digital Mars
+// Copyright (C) 2000-2014 by Digital Mars
 // All Rights Reserved
 // http://www.digitalmars.com
 // Written by Walter Bright
@@ -774,7 +774,7 @@ STATIC void defstarkill()
 
 #if 1
 /* The following program fails for this:
-import std.c.stdio;
+import core.stdc.stdio;
 
 class Foo
 {
@@ -974,6 +974,7 @@ STATIC void accumaecpx(elem *n)
             vec_free(Kr);
             break;
         }
+        case OPddtor:
         case OPasm:
             assert(!n->Eexp);                   // no ASM available expressions
             vec_set(KILL);                      // KILL everything

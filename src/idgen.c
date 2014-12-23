@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/idgen.c
+ */
 
 // Program to generate string files in d data structures.
 // Saves much tedious typing, and eliminates typo problems.
@@ -63,7 +64,6 @@ Msgtable msgtable[] =
     { "typeinfo" },
     { "outer" },
     { "Exception" },
-    { "AssociativeArray" },
     { "RTInfo" },
     { "Throwable" },
     { "Error" },
@@ -76,13 +76,16 @@ Msgtable msgtable[] =
     { "q" },
     { "__vptr" },
     { "__monitor" },
+    { "gate", "__gate" },
+    { "__c_long" },
+    { "__c_ulong" },
+    { "__c_long_double" },
 
     { "TypeInfo" },
     { "TypeInfo_Class" },
     { "TypeInfo_Interface" },
     { "TypeInfo_Struct" },
     { "TypeInfo_Enum" },
-    { "TypeInfo_Typedef" },
     { "TypeInfo_Pointer" },
     { "TypeInfo_Vector" },
     { "TypeInfo_Array" },
@@ -103,6 +106,7 @@ Msgtable msgtable[] =
     { "postblit" },
     { "xopEquals", "__xopEquals" },
     { "xopCmp", "__xopCmp" },
+    { "xtoHash", "__xtoHash" },
 
     { "LINE", "__LINE__" },
     { "FILE", "__FILE__" },
@@ -145,10 +149,9 @@ Msgtable msgtable[] =
 
     { "sort" },
     { "reverse" },
-    { "dup" },
-    { "idup" },
 
     { "property" },
+    { "nogc" },
     { "safe" },
     { "trusted" },
     { "system" },
@@ -158,7 +161,7 @@ Msgtable msgtable[] =
     { "___out", "out" },
     { "___in", "in" },
     { "__int", "int" },
-    { "__dollar", "$" },
+    { "_dollar", "$" },
     { "__LOCAL_SIZE" },
 
     // For operator overloads
@@ -244,7 +247,6 @@ Msgtable msgtable[] =
     { "FpopFront", "popFront" },
     { "FpopBack", "popBack" },
 
-    { "adDup", "_adDupT" },
     { "adReverse", "_adReverse" },
 
     // For internal functions
@@ -270,6 +272,7 @@ Msgtable msgtable[] =
     { "getmembers", "getMembers" },
 
     // Special functions
+    { "__alloca", "alloca" },
     { "main" },
     { "WinMain" },
     { "DllMain" },
@@ -306,6 +309,7 @@ Msgtable msgtable[] =
     { "isArithmetic" },
     { "isAssociativeArray" },
     { "isFinalClass" },
+    { "isTemplate" },
     { "isPOD" },
     { "isNested" },
     { "isFloating" },
@@ -338,8 +342,18 @@ Msgtable msgtable[] =
     { "parameters" },
     { "getAliasThis" },
     { "getAttributes" },
+    { "getFunctionAttributes" },
     { "getUnitTests" },
-    { "getVirtualIndex" }
+    { "getVirtualIndex" },
+    { "getPointerBitmap" },
+
+    // For C++ mangling
+    { "allocator" },
+    { "basic_string" },
+    { "basic_istream" },
+    { "basic_ostream" },
+    { "basic_iostream" },
+    { "char_traits" },
 };
 
 

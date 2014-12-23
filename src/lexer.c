@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/lexer.c
+ */
 
 /* Lexical Analyzer */
 
@@ -57,7 +58,7 @@ static void cmtable_init()
     {
         if ('0' <= c && c <= '7')
             cmtable[c] |= CMoctal;
-        if (isdigit(c) || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F'))
+        if (isxdigit(c))
             cmtable[c] |= CMhex;
         if (isalnum(c) || c == '_')
             cmtable[c] |= CMidchar;
@@ -69,17 +70,17 @@ static void cmtable_init()
 
 const char *Token::tochars[TOKMAX];
 
-void *Token::operator new(size_t size)
-{   Token *t;
-
+Token *Token::alloc()
+{
     if (Lexer::freelist)
     {
-        t = Lexer::freelist;
+        Token *t = Lexer::freelist;
         Lexer::freelist = t->next;
+        t->next = NULL;
         return t;
     }
 
-    return ::operator new(size);
+    return new Token();
 }
 
 #ifdef DEBUG
@@ -161,10 +162,13 @@ const char *Token::toChars()
                     case '\\':
                         buf.writeByte('\\');
                     default:
-                        if (isprint(c))
-                            buf.writeByte(c);
-                        else if (c <= 0x7F)
-                            buf.printf("\\x%02x", c);
+                        if (c <= 0x7F)
+                        {
+                            if (isprint(c))
+                                buf.writeByte(c);
+                            else
+                                buf.printf("\\x%02x", c);
+                        }
                         else if (c <= 0xFFFF)
                             buf.printf("\\u%04x", c);
                         else
@@ -246,17 +250,19 @@ Lexer::Lexer(Module *mod,
         const utf8_t *base, size_t begoffset, size_t endoffset,
         int doDocComment, int commentToken)
 {
-    scanloc = Loc(mod, 1);
+    scanloc = Loc(mod, 1, 1);
     //printf("Lexer::Lexer(%p,%d)\n",base,length);
     //printf("lexer.mod = %p, %p\n", mod, this->loc.mod);
     memset(&token,0,sizeof(token));
     this->base = base;
     this->end  = base + endoffset;
     p = base + begoffset;
+    line = p;
     this->mod = mod;
     this->doDocComment = doDocComment;
     this->anyToken = 0;
     this->commentToken = commentToken;
+    this->errors = false;
     //initKeywords();
 
     /* If first line starts with '#!', ignore the line
@@ -294,10 +300,22 @@ Lexer::Lexer(Module *mod,
             }
             break;
         }
-        scanloc.linnum = 2;
+        endOfLine();
     }
 }
 
+
+void Lexer::endOfLine()
+{
+    scanloc.linnum++;
+    line = p;
+}
+
+Loc Lexer::loc()
+{
+    scanloc.charnum = (unsigned)(1 + p-line);
+    return scanloc;
+}
 
 void Lexer::error(const char *format, ...)
 {
@@ -305,6 +323,7 @@ void Lexer::error(const char *format, ...)
     va_start(ap, format);
     ::verror(token.loc, format, ap);
     va_end(ap);
+    errors = true;
 }
 
 void Lexer::error(Loc loc, const char *format, ...)
@@ -313,6 +332,7 @@ void Lexer::error(Loc loc, const char *format, ...)
     va_start(ap, format);
     ::verror(loc, format, ap);
     va_end(ap);
+    errors = true;
 }
 
 void Lexer::deprecation(const char *format, ...)
@@ -321,6 +341,8 @@ void Lexer::deprecation(const char *format, ...)
     va_start(ap, format);
     ::vdeprecation(token.loc, format, ap);
     va_end(ap);
+    if (global.params.useDeprecated == 0)
+        errors = true;
 }
 
 TOK Lexer::nextToken()
@@ -347,7 +369,7 @@ Token *Lexer::peek(Token *ct)
         t = ct->next;
     else
     {
-        t = new Token();
+        t = Token::alloc();
         scan(t);
         ct->next = t;
     }
@@ -467,7 +489,7 @@ Linvalid:
 void Lexer::scan(Token *t)
 {
     unsigned lastLine = scanloc.linnum;
-    unsigned linnum;
+    Loc startLoc;
 
     t->blockComment = NULL;
     t->lineComment = NULL;
@@ -475,7 +497,7 @@ void Lexer::scan(Token *t)
     {
         t->ptr = p;
         //printf("p = %p, *p = '%c'\n",p,*p);
-        t->loc = scanloc;
+        t->loc = loc();
         switch (*p)
         {
             case 0:
@@ -493,12 +515,12 @@ void Lexer::scan(Token *t)
             case '\r':
                 p++;
                 if (*p != '\n')                 // if CR stands by itself
-                    scanloc.linnum++;
+                    endOfLine();
                 continue;                       // skip white space
 
             case '\n':
                 p++;
-                scanloc.linnum++;
+                endOfLine();
                 continue;                       // skip white space
 
             case '0':   case '1':   case '2':   case '3':   case '4':
@@ -544,39 +566,6 @@ void Lexer::scan(Token *t)
             case '"':
                 t->value = escapeStringConstant(t,0);
                 return;
-
-            case '\\':                  // escaped string literal
-            {   unsigned c;
-                const utf8_t *pstart = p;
-
-                stringbuffer.reset();
-                do
-                {
-                    p++;
-                    switch (*p)
-                    {
-                        case 'u':
-                        case 'U':
-                        case '&':
-                            c = escapeSequence();
-                            stringbuffer.writeUTF8(c);
-                            break;
-
-                        default:
-                            c = escapeSequence();
-                            stringbuffer.writeByte(c);
-                            break;
-                    }
-                } while (*p == '\\');
-                t->len = (unsigned)stringbuffer.offset;
-                stringbuffer.writeByte(0);
-                t->ustring = (utf8_t *)mem.malloc(stringbuffer.offset);
-                memcpy(t->ustring, stringbuffer.data, stringbuffer.offset);
-                t->postfix = 0;
-                t->value = TOKstring;
-                error("Escape String literal %.*s is deprecated, use double quoted string literal \"%.*s\" instead", p - pstart, pstart, p - pstart, pstart);
-                return;
-            }
 
             case 'a':   case 'b':   case 'c':   case 'd':   case 'e':
             case 'f':   case 'g':   case 'h':   case 'i':   case 'j':
@@ -708,7 +697,7 @@ void Lexer::scan(Token *t)
 
                     case '*':
                         p++;
-                        linnum = scanloc.linnum;
+                        startLoc = loc();
                         while (1)
                         {
                             while (1)
@@ -719,21 +708,21 @@ void Lexer::scan(Token *t)
                                         break;
 
                                     case '\n':
-                                        scanloc.linnum++;
+                                        endOfLine();
                                         p++;
                                         continue;
 
                                     case '\r':
                                         p++;
                                         if (*p != '\n')
-                                            scanloc.linnum++;
+                                            endOfLine();
                                         continue;
 
                                     case 0:
                                     case 0x1A:
                                         error("unterminated /* */ comment");
                                         p = end;
-                                        t->loc = scanloc;
+                                        t->loc = loc();
                                         t->value = TOKeof;
                                         return;
 
@@ -741,7 +730,7 @@ void Lexer::scan(Token *t)
                                         if (c & 0x80)
                                         {   unsigned u = decodeUTF();
                                             if (u == PS || u == LS)
-                                                scanloc.linnum++;
+                                                endOfLine();
                                         }
                                         p++;
                                         continue;
@@ -754,19 +743,18 @@ void Lexer::scan(Token *t)
                         }
                         if (commentToken)
                         {
-                            t->loc.filename = scanloc.filename;
-                            t->loc.linnum   = linnum;
+                            t->loc = startLoc;
                             t->value = TOKcomment;
                             return;
                         }
                         else if (doDocComment && t->ptr[2] == '*' && p - 4 != t->ptr)
                         {   // if /** but not /**/
-                            getDocComment(t, lastLine == linnum);
+                            getDocComment(t, lastLine == startLoc.linnum);
                         }
                         continue;
 
                     case '/':           // do // style comments
-                        linnum = scanloc.linnum;
+                        startLoc = loc();
                         while (1)
                         {   utf8_t c = *++p;
                             switch (c)
@@ -784,15 +772,14 @@ void Lexer::scan(Token *t)
                                     if (commentToken)
                                     {
                                         p = end;
-                                        t->loc.filename = scanloc.filename;
-                                        t->loc.linnum   = linnum;
+                                        t->loc = startLoc;
                                         t->value = TOKcomment;
                                         return;
                                     }
                                     if (doDocComment && t->ptr[2] == '/')
-                                        getDocComment(t, lastLine == linnum);
+                                        getDocComment(t, lastLine == startLoc.linnum);
                                     p = end;
-                                    t->loc = scanloc;
+                                    t->loc = loc();
                                     t->value = TOKeof;
                                     return;
 
@@ -810,23 +797,22 @@ void Lexer::scan(Token *t)
                         if (commentToken)
                         {
                             p++;
-                            scanloc.linnum++;
-                            t->loc.filename = scanloc.filename;
-                            t->loc.linnum   = linnum;
+                            endOfLine();
+                            t->loc = startLoc;
                             t->value = TOKcomment;
                             return;
                         }
                         if (doDocComment && t->ptr[2] == '/')
-                            getDocComment(t, lastLine == linnum);
+                            getDocComment(t, lastLine == startLoc.linnum);
 
                         p++;
-                        scanloc.linnum++;
+                        endOfLine();
                         continue;
 
                     case '+':
                     {   int nest;
 
-                        linnum = scanloc.linnum;
+                        startLoc = loc();
                         p++;
                         nest = 1;
                         while (1)
@@ -855,11 +841,11 @@ void Lexer::scan(Token *t)
                                 case '\r':
                                     p++;
                                     if (*p != '\n')
-                                        scanloc.linnum++;
+                                        endOfLine();
                                     continue;
 
                                 case '\n':
-                                    scanloc.linnum++;
+                                    endOfLine();
                                     p++;
                                     continue;
 
@@ -867,7 +853,7 @@ void Lexer::scan(Token *t)
                                 case 0x1A:
                                     error("unterminated /+ +/ comment");
                                     p = end;
-                                    t->loc = scanloc;
+                                    t->loc = loc();
                                     t->value = TOKeof;
                                     return;
 
@@ -875,7 +861,7 @@ void Lexer::scan(Token *t)
                                     if (c & 0x80)
                                     {   unsigned u = decodeUTF();
                                         if (u == PS || u == LS)
-                                            scanloc.linnum++;
+                                            endOfLine();
                                     }
                                     p++;
                                     continue;
@@ -884,14 +870,13 @@ void Lexer::scan(Token *t)
                         }
                         if (commentToken)
                         {
-                            t->loc.filename = scanloc.filename;
-                            t->loc.linnum   = linnum;
+                            t->loc = startLoc;
                             t->value = TOKcomment;
                             return;
                         }
                         if (doDocComment && t->ptr[2] == '+' && p - 4 != t->ptr)
                         {   // if /++ but not /++/
-                            getDocComment(t, lastLine == linnum);
+                            getDocComment(t, lastLine == startLoc.linnum);
                         }
                         continue;
                     }
@@ -1178,15 +1163,15 @@ void Lexer::scan(Token *t)
 
                     if (c == PS || c == LS)
                     {
-                        scanloc.linnum++;
+                        endOfLine();
                         p++;
                         continue;
                     }
                 }
                 if (c < 0x80 && isprint(c))
-                    error("unsupported char '%c'", c);
+                    error("character '%c' is not a valid token", c);
                 else
-                    error("unsupported char 0x%02x", c);
+                    error("character 0x%02x is not a valid token", c);
                 p++;
                 continue;
             }
@@ -1281,9 +1266,9 @@ unsigned Lexer::escapeSequence()
 
                         default:
                             if (isalpha(*p) ||
-                                (p != idstart + 1 && isdigit(*p)))
+                                (p != idstart && isdigit(*p)))
                                 continue;
-                            error("unterminated named entity");
+                            error("unterminated named entity &%.*s;", (int)(p - idstart + 1), idstart);
                             break;
                     }
                     break;
@@ -1308,7 +1293,7 @@ unsigned Lexer::escapeSequence()
                     } while (++n < 3 && isoctal((utf8_t)c));
                     c = v;
                     if (c > 0xFF)
-                        error("0%03o is larger than a byte", c);
+                        error("escape octal sequence \\%03o is larger than \\377", c);
                 }
                 else
                     error("undefined escape sequence \\%c",c);
@@ -1323,7 +1308,7 @@ unsigned Lexer::escapeSequence()
 TOK Lexer::wysiwygStringConstant(Token *t, int tc)
 {
     unsigned c;
-    Loc start = scanloc;
+    Loc start = loc();
 
     p++;
     stringbuffer.reset();
@@ -1333,14 +1318,14 @@ TOK Lexer::wysiwygStringConstant(Token *t, int tc)
         switch (c)
         {
             case '\n':
-                scanloc.linnum++;
+                endOfLine();
                 break;
 
             case '\r':
                 if (*p == '\n')
                     continue;   // ignore
                 c = '\n';       // treat EndOfLine as \n character
-                scanloc.linnum++;
+                endOfLine();
                 break;
 
             case 0:
@@ -1370,7 +1355,7 @@ TOK Lexer::wysiwygStringConstant(Token *t, int tc)
                     unsigned u = decodeUTF();
                     p++;
                     if (u == PS || u == LS)
-                        scanloc.linnum++;
+                        endOfLine();
                     stringbuffer.writeUTF8(u);
                     continue;
                 }
@@ -1388,9 +1373,9 @@ TOK Lexer::wysiwygStringConstant(Token *t, int tc)
 TOK Lexer::hexStringConstant(Token *t)
 {
     unsigned c;
-    Loc start = scanloc;
+    Loc start = loc();
     unsigned n = 0;
-    unsigned v;
+    unsigned v = ~0; // dead assignment, needed to suppress warning
 
     p++;
     stringbuffer.reset();
@@ -1410,7 +1395,7 @@ TOK Lexer::hexStringConstant(Token *t)
                     continue;                   // ignore
                 // Treat isolated '\r' as if it were a '\n'
             case '\n':
-                scanloc.linnum++;
+                endOfLine();
                 continue;
 
             case 0:
@@ -1445,12 +1430,12 @@ TOK Lexer::hexStringConstant(Token *t)
                     unsigned u = decodeUTF();
                     p++;
                     if (u == PS || u == LS)
-                        scanloc.linnum++;
+                        endOfLine();
                     else
-                        error("non-hex character \\u%04x", u);
+                        error("non-hex character \\u%04x in hex string", u);
                 }
                 else
-                    error("non-hex character '%c'", c);
+                    error("non-hex character '%c' in hex string", c);
                 if (n & 1)
                 {   v = (v << 4) | c;
                     stringbuffer.writeByte(v);
@@ -1479,11 +1464,11 @@ TOK Lexer::hexStringConstant(Token *t)
 TOK Lexer::delimitedStringConstant(Token *t)
 {
     unsigned c;
-    Loc start = scanloc;
+    Loc start = loc();
     unsigned delimleft = 0;
     unsigned delimright = 0;
     unsigned nest = 1;
-    unsigned nestcount;
+    unsigned nestcount = ~0; // dead assignment, needed to suppress warning
     Identifier *hereid = NULL;
     unsigned blankrol = 0;
     unsigned startline = 0;
@@ -1498,7 +1483,7 @@ TOK Lexer::delimitedStringConstant(Token *t)
         {
             case '\n':
             Lnextline:
-                scanloc.linnum++;
+                endOfLine();
                 startline = 1;
                 if (blankrol)
                 {   blankrol = 0;
@@ -1519,7 +1504,11 @@ TOK Lexer::delimitedStringConstant(Token *t)
 
             case 0:
             case 0x1A:
-                goto Lerror;
+                error("unterminated delimited string constant starting at %s", start.toChars());
+                t->ustring = (utf8_t *)"";
+                t->len = 0;
+                t->postfix = 0;
+                return TOKstring;
 
             default:
                 if (c & 0x80)
@@ -1616,13 +1605,6 @@ Ldone:
     memcpy(t->ustring, stringbuffer.data, stringbuffer.offset);
     stringPostfix(t);
     return TOKstring;
-
-Lerror:
-    error("unterminated string constant starting at %s", start.toChars());
-    t->ustring = (utf8_t *)"";
-    t->len = 0;
-    t->postfix = 0;
-    return TOKstring;
 }
 
 /**************************************
@@ -1637,7 +1619,7 @@ Lerror:
 TOK Lexer::tokenStringConstant(Token *t)
 {
     unsigned nest = 1;
-    Loc start = scanloc;
+    Loc start = loc();
     const utf8_t *pstart = ++p;
 
     while (1)
@@ -1652,31 +1634,27 @@ TOK Lexer::tokenStringConstant(Token *t)
 
             case TOKrcurly:
                 if (--nest == 0)
-                    goto Ldone;
+                {
+                    t->len = (unsigned)(p - 1 - pstart);
+                    t->ustring = (utf8_t *)mem.malloc(t->len + 1);
+                    memcpy(t->ustring, pstart, t->len);
+                    t->ustring[t->len] = 0;
+                    stringPostfix(t);
+                    return TOKstring;
+                }
                 continue;
 
             case TOKeof:
-                goto Lerror;
+                error("unterminated token string constant starting at %s", start.toChars());
+                t->ustring = (utf8_t *)"";
+                t->len = 0;
+                t->postfix = 0;
+                return TOKstring;
 
             default:
                 continue;
         }
     }
-
-Ldone:
-    t->len = (unsigned)(p - 1 - pstart);
-    t->ustring = (utf8_t *)mem.malloc(t->len + 1);
-    memcpy(t->ustring, pstart, t->len);
-    t->ustring[t->len] = 0;
-    stringPostfix(t);
-    return TOKstring;
-
-Lerror:
-    error("unterminated token string constant starting at %s", start.toChars());
-    t->ustring = (utf8_t *)"";
-    t->len = 0;
-    t->postfix = 0;
-    return TOKstring;
 }
 
 
@@ -1687,7 +1665,7 @@ Lerror:
 TOK Lexer::escapeStringConstant(Token *t, int wide)
 {
     unsigned c;
-    Loc start = scanloc;
+    Loc start = loc();
 
     p++;
     stringbuffer.reset();
@@ -1712,14 +1690,14 @@ TOK Lexer::escapeStringConstant(Token *t, int wide)
                 }
                 break;
             case '\n':
-                scanloc.linnum++;
+                endOfLine();
                 break;
 
             case '\r':
                 if (*p == '\n')
                     continue;   // ignore
                 c = '\n';       // treat EndOfLine as \n character
-                scanloc.linnum++;
+                endOfLine();
                 break;
 
             case '"':
@@ -1746,7 +1724,7 @@ TOK Lexer::escapeStringConstant(Token *t, int wide)
                     c = decodeUTF();
                     if (c == LS || c == PS)
                     {   c = '\n';
-                        scanloc.linnum++;
+                        endOfLine();
                     }
                     p++;
                     stringbuffer.writeUTF8(c);
@@ -1792,12 +1770,13 @@ TOK Lexer::charConstant(Token *t, int wide)
             break;
         case '\n':
         L1:
-            scanloc.linnum++;
+            endOfLine();
         case '\r':
         case 0:
         case 0x1A:
         case '\'':
             error("unterminated character constant");
+            t->uns64value = '?';
             return tk;
 
         default:
@@ -1818,7 +1797,9 @@ TOK Lexer::charConstant(Token *t, int wide)
     }
 
     if (*p != '\'')
-    {   error("unterminated character constant");
+    {
+        error("unterminated character constant");
+        t->uns64value = '?';
         return tk;
     }
     p++;
@@ -1865,6 +1846,7 @@ TOK Lexer::number(Token *t)
     uinteger_t n = 0;                       // unsigned >=64 bit integer type
     int d;
     bool err = false;
+    bool overflow = false;
 
     c = *p;
     if (c == '0')
@@ -1893,15 +1875,11 @@ TOK Lexer::number(Token *t)
                 break;
 
             case '.':
-                if (p[1] == '.' ||                      // if ".."
-                    (isalpha(p[1]) || p[1] == '_' ||    // if ".identifier"
-                      (p[1] & 0x80)                     // if ".unicode"
-                    )
-                   )
-                {
-                    goto Ldone;         // regard . as start of separate token
-                }
-                goto Lreal;
+                if (p[1] == '.')
+                    goto Ldone; // if ".."
+                if (isalpha(p[1]) || p[1] == '_' || p[1] & 0x80)
+                    goto Ldone; // if ".identifier" or ".unicode"
+                goto Lreal; // '.' is part of current token
 
             case 'i':
             case 'f':
@@ -1948,7 +1926,7 @@ TOK Lexer::number(Token *t)
                 ++p;
                 if (base < 10 && !err)
                 {
-                    error("radix %d digit expected", base);
+                    error("radix %d digit expected, not '%c'", base, c);
                     err = true;
                 }
                 d = c - '0';
@@ -1963,7 +1941,7 @@ TOK Lexer::number(Token *t)
                         goto Lreal;
                     if (!err)
                     {
-                        error("radix %d digit expected", base);
+                        error("radix %d digit expected, not '%c'", base, c);
                         err = true;
                     }
                 }
@@ -1979,16 +1957,11 @@ TOK Lexer::number(Token *t)
                 goto Ldone;
 
             case '.':
-                if (p[1] == '.' ||                      // if ".."
-                    base == 10 &&
-                    (isalpha(p[1]) || p[1] == '_' ||    // if ".identifier"
-                      (p[1] & 0x80)                     // if ".unicode"
-                    )
-                   )
-                {
-                    goto Ldone;         // regard . as start of separate token
-                }
-                goto Lreal;             // otherwise as part of a floating point literal
+                if (p[1] == '.')
+                    goto Ldone; // if ".."
+                if (base == 10 && (isalpha(p[1]) || p[1] == '_' || p[1] & 0x80))
+                    goto Ldone; // if ".identifier" or ".unicode"
+                goto Lreal; // otherwise as part of a floating point literal
 
             case 'p':
             case 'P':
@@ -2006,23 +1979,27 @@ TOK Lexer::number(Token *t)
         }
 
         uinteger_t n2 = n * base;
-        if ((n2 / base != n || n2 + d < n) && !err)
+        if ((n2 / base != n || n2 + d < n))
         {
-            error("integer overflow");
-            err = true;
+            overflow = true;
         }
         n = n2 + d;
 
+        // if n needs more than 64 bits
         if (sizeof(n) > 8 &&
-            n > 0xFFFFFFFFFFFFFFFFULL &&    // if n needs more than 64 bits
-            !err)
+            n > 0xFFFFFFFFFFFFFFFFULL)
         {
-            error("integer overflow");
-            err = true;
+            overflow = true;
         }
     }
 
 Ldone:
+
+    if (overflow && !err)
+    {
+        error("integer overflow");
+        err = true;
+    }
 
     enum FLAGS
     {
@@ -2048,7 +2025,7 @@ Ldone:
 
             case 'l':
                 f = FLAGS_long;
-                error("Lower case integer suffix 'l' is not allowed. Please use 'L' instead");
+                error("lower case integer suffix 'l' is not allowed. Please use 'L' instead");
                 goto L1;
 
             case 'L':
@@ -2069,7 +2046,7 @@ Ldone:
     }
 
     if (base == 8 && n >= 8)
-        deprecation("octal literals 0%llo%.*s are deprecated, use std.conv.octal!%llo%.*s instead",
+        error("octal literals 0%llo%.*s are no longer supported, use std.conv.octal!%llo%.*s instead",
                 n, p - psuffix, psuffix, n, p - psuffix, psuffix);
 
     TOK result;
@@ -2271,7 +2248,7 @@ TOK Lexer::inreal(Token *t)
             break;
 
         case 'l':
-            error("'l' suffix is deprecated, use 'L' instead");
+            error("use 'L' suffix instead of 'l'");
         case 'L':
             result = TOKfloat80v;
             p++;
@@ -2280,7 +2257,7 @@ TOK Lexer::inreal(Token *t)
     if (*p == 'i' || *p == 'I')
     {
         if (*p == 'I')
-            error("'I' suffix is deprecated, use 'i' instead");
+            error("use 'i' suffix instead of 'I'");
         p++;
         switch (result)
         {
@@ -2297,7 +2274,10 @@ TOK Lexer::inreal(Token *t)
         }
     }
     if (errno == ERANGE)
-        error("number is not representable");
+    {
+        const char *suffix = (result == TOKfloat32v || result == TOKimaginary32v) ? "f" : "";
+        error(scanloc, "number '%s%s' is not representable", (char *)stringbuffer.data, suffix);
+    }
 #ifdef DEBUG
     switch (result)
     {
@@ -2325,19 +2305,21 @@ TOK Lexer::inreal(Token *t)
 void Lexer::poundLine()
 {
     Token tok;
-    int linnum;
+    int linnum = this->scanloc.linnum;
     char *filespec = NULL;
-    Loc loc = this->scanloc;
+    Loc loc = this->loc();
 
     scan(&tok);
     if (tok.value == TOKint32v || tok.value == TOKint64v)
-    {   linnum = (int)(tok.uns64value - 1);
-        if (linnum != tok.uns64value - 1)
-            error("line number out of range");
+    {
+        int lin = (int)(tok.uns64value - 1);
+        if (lin != tok.uns64value - 1)
+            error("line number %lld out of range", (unsigned long long)tok.uns64value);
+        else
+            linnum = lin;
     }
     else if (tok.value == TOKline)
     {
-        linnum = this->scanloc.linnum;
     }
     else
         goto Lerr;
@@ -2495,6 +2477,30 @@ void Lexer::getDocComment(Token *t, unsigned lineComment)
             break;
     }
 
+    /* Remove leading spaces until start of the comment
+     */
+    int linestart = 0;
+    if (ct == '/')
+    {
+        while (q < qend && (*q == ' ' || *q == '\t'))
+            ++q;
+    }
+    else if (q < qend)
+    {
+        if (*q == '\r')
+        {
+            ++q;
+            if (q < qend && *q == '\n')
+                ++q;
+            linestart = 1;
+        }
+        else if (*q == '\n')
+        {
+            ++q;
+            linestart = 1;
+        }
+    }
+
     /* Remove trailing row of ****'s or ++++'s
      */
     if (ct != '/')
@@ -2510,7 +2516,6 @@ void Lexer::getDocComment(Token *t, unsigned lineComment)
      * Canonicalize it into buf[].
      */
     OutBuffer buf;
-    int linestart = 0;
 
     for (; q < qend; q++)
     {
@@ -2568,6 +2573,14 @@ void Lexer::getDocComment(Token *t, unsigned lineComment)
         buf.writeByte(c);
     }
 
+    /* Trim trailing whitespace (if the last line does not have newline)
+     */
+    if (buf.offset && (buf.data[buf.offset - 1] == ' ' || buf.data[buf.offset - 1] == '\t'))
+    {
+        while (buf.offset && (buf.data[buf.offset - 1] == ' ' || buf.data[buf.offset - 1] == '\t'))
+            buf.offset--;
+    }
+
     // Always end with a newline
     if (!buf.offset || buf.data[buf.offset - 1] != '\n')
         buf.writeByte('\n');
@@ -2599,19 +2612,29 @@ const utf8_t *Lexer::combineComments(const utf8_t *c1, const utf8_t *c2)
     const utf8_t *c = c2;
 
     if (c1)
-    {   c = c1;
+    {
+        c = c1;
         if (c2)
-        {   size_t len1 = strlen((char *)c1);
+        {
+            size_t len1 = strlen((char *)c1);
             size_t len2 = strlen((char *)c2);
 
-            utf8_t *p = (utf8_t *)mem.malloc(len1 + 1 + len2 + 1);
-            memcpy(p, c1, len1);
+            int insertNewLine = 0;
             if (len1 && c1[len1 - 1] != '\n')
-            {   p[len1] = '\n';
-                len1++;
+            {
+                ++len1;
+                insertNewLine = 1;
             }
-            memcpy(p + len1, c2, len2);
-            p[len1 + len2] = 0;
+
+            utf8_t *p = (utf8_t *)mem.malloc(len1 + 1 + len2 + 1);
+            memcpy(p, c1, len1 - insertNewLine);
+            if (insertNewLine)
+                p[len1 - 1] = '\n';
+
+            p[len1] = '\n';
+
+            memcpy(p + len1 + 1, c2, len2);
+            p[len1 + 1 + len2] = 0;
             c = p;
         }
     }
@@ -2807,7 +2830,7 @@ int Token::isKeyword()
 
 void Lexer::initKeywords()
 {
-    stringtable._init(6151);
+    stringtable._init(28000);
 
     cmtable_init();
 
@@ -2959,4 +2982,3 @@ void unittest_lexer()
 }
 
 #endif
-

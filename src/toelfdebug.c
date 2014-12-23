@@ -1,13 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 2004-2007 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
-
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/toelfdebug.c
+ */
 
 #include <stdio.h>
 #include <stddef.h>
@@ -43,61 +43,15 @@
  * Emit symbolic debug info in Dwarf2 format.
  */
 
-void TypedefDeclaration::toDebug()
+void toDebug(EnumDeclaration *ed)
 {
-    //printf("TypedefDeclaration::toDebug('%s')\n", toChars());
+    //printf("EnumDeclaration::toDebug('%s')\n", ed->toChars());
 }
 
-
-void EnumDeclaration::toDebug()
-{
-    //printf("EnumDeclaration::toDebug('%s')\n", toChars());
-}
-
-
-void StructDeclaration::toDebug()
+void toDebug(StructDeclaration *sd)
 {
 }
 
-
-void ClassDeclaration::toDebug()
+void toDebug(ClassDeclaration *cd)
 {
 }
-
-
-/* ===================================================================== */
-
-/*****************************************
- * Insert CV info into *p.
- * Returns:
- *      number of bytes written, or that would be written if p==NULL
- */
-
-int Dsymbol::cvMember(unsigned char *p)
-{
-    return 0;
-}
-
-
-int TypedefDeclaration::cvMember(unsigned char *p)
-{
-    return 0;
-}
-
-
-int EnumDeclaration::cvMember(unsigned char *p)
-{
-    return 0;
-}
-
-
-int FuncDeclaration::cvMember(unsigned char *p)
-{
-    return 0;
-}
-
-int VarDeclaration::cvMember(unsigned char *p)
-{
-    return 0;
-}
-

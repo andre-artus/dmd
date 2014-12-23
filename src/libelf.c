@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/libelf.c
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -77,7 +78,7 @@ Library *LibElf_factory()
 LibElf::LibElf()
 {
     libfile = NULL;
-    tab._init();
+    tab._init(14000);
 }
 
 /***********************************
@@ -104,10 +105,11 @@ void LibElf::setFilename(const char *dir, const char *filename)
         arg = FileName::combine(dir, arg);
     const char *libfilename = FileName::defaultExt(arg, global.lib_ext);
 
-    libfile = new File(libfilename);
+    libfile = File::create(libfilename);
 
     loc.filename = libfile->name->toChars();
     loc.linnum = 0;
+    loc.charnum = 0;
 }
 
 void LibElf::write()
@@ -213,6 +215,8 @@ void OmToHeader(Header *h, ObjModule *om)
     assert(len <= 6);
     memset(h->user_id + len, ' ', 6 - len);
 
+    if (om->group_id > 999999)
+        om->group_id = 0;
     len = sprintf(h->group_id, "%u", om->group_id);
     assert(len <= 6);
     memset(h->group_id + len, ' ', 6 - len);
@@ -308,12 +312,11 @@ void LibElf::addObject(const char *module_name, void *buf, size_t buflen)
     int fromfile = 0;
     if (!buf)
     {   assert(module_name[0]);
-        FileName f((char *)module_name);
-        File file(&f);
-        readFile(Loc(), &file);
-        buf = file.buffer;
-        buflen = file.len;
-        file.ref = 1;
+        File *file = File::create((char *)module_name);
+        readFile(Loc(), file);
+        buf = file->buffer;
+        buflen = file->len;
+        file->ref = 1;
         fromfile = 1;
     }
     int reason = 0;

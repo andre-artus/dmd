@@ -1,12 +1,13 @@
 
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
-
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/link.c
+ */
 
 #include        <stdio.h>
 #include        <ctype.h>
@@ -33,7 +34,6 @@
     #include        <spawn.h>
     #if __APPLE__
         #include <crt_externs.h>
-        #define environ (*(_NSGetEnviron()))
     #endif
 #else
     #define HAS_POSIX_SPAWN 0
@@ -47,7 +47,7 @@
 
 #include        "arraytypes.h"
 
-void toWinPath(char *src);
+const char * toWinPath(const char *src);
 int executecmd(const char *cmd, const char *args);
 int executearg0(const char *cmd, const char *args);
 
@@ -144,7 +144,7 @@ int findNoMainError(int fd)
 int runLINK()
 {
 #if _WIN32
-    if (global.params.is64bit)
+    if (global.params.mscoff)
     {
         OutBuffer cmdbuf;
 
@@ -228,6 +228,10 @@ int runLINK()
         {
             cmdbuf.writeByte(' ');
             cmdbuf.writestring("/DEBUG");
+
+            // in release mode we need to reactivate /OPT:REF after /DEBUG
+            if (global.params.release)
+                cmdbuf.writestring(" /OPT:REF");
         }
 
         if (global.params.dll)
@@ -246,16 +250,22 @@ int runLINK()
          */
         const char *vcinstalldir = getenv("VCINSTALLDIR");
         if (vcinstalldir)
-        {   cmdbuf.writestring(" \"/LIBPATH:");
+        {   cmdbuf.writestring(" /LIBPATH:\"");
             cmdbuf.writestring(vcinstalldir);
-            cmdbuf.writestring("lib\\amd64\"");
+            if(global.params.is64bit)
+                cmdbuf.writestring("\\lib\\amd64\"");
+            else
+                cmdbuf.writestring("\\lib\"");
         }
 
         const char *windowssdkdir = getenv("WindowsSdkDir");
         if (windowssdkdir)
-        {   cmdbuf.writestring(" \"/LIBPATH:");
+        {   cmdbuf.writestring(" /LIBPATH:\"");
             cmdbuf.writestring(windowssdkdir);
-            cmdbuf.writestring("lib\\x64\"");
+            if(global.params.is64bit)
+                cmdbuf.writestring("\\lib\\x64\"");
+            else
+                cmdbuf.writestring("\\lib\"");
         }
 
         char *p = cmdbuf.peekString();
@@ -274,7 +284,7 @@ int runLINK()
                 sprintf(p, "@%s", lnkfilename);
         }
 
-        const char *linkcmd = getenv("LINKCMD64");
+        const char *linkcmd = getenv(global.params.is64bit ? "LINKCMD64" : "LINKCMD");
         if (!linkcmd)
             linkcmd = getenv("LINKCMD"); // backward compatible
         if (!linkcmd)
@@ -283,7 +293,10 @@ int runLINK()
             {
                 OutBuffer linkcmdbuf;
                 linkcmdbuf.writestring(vcinstalldir);
-                linkcmdbuf.writestring("bin\\amd64\\link");
+                if(global.params.is64bit)
+                    linkcmdbuf.writestring("\\bin\\amd64\\link");
+                else
+                    linkcmdbuf.writestring("\\bin\\link");
                 linkcmd = linkcmdbuf.extractString();
             }
             else
@@ -601,6 +614,12 @@ int runLINK()
         }
     }
 
+    for (size_t i = 0; i < global.params.dllfiles->dim; i++)
+    {
+        const char *p = (*global.params.dllfiles)[i];
+        argv.push(p);
+    }
+
     /* Standard libraries must go after user specified libraries
      * passed with -l.
      */
@@ -626,10 +645,6 @@ int runLINK()
         argv.push(buf);             // turns into /usr/lib/libphobos2.a
     }
 
-#ifdef __sun
-    argv.push("-mt");
-#endif
-
 //    argv.push("-ldruntime");
     argv.push("-lpthread");
     argv.push("-lm");
@@ -638,7 +653,7 @@ int runLINK()
     argv.push("-lrt");
 #endif
 
-    if (!global.params.quiet || global.params.verbose)
+    if (global.params.verbose)
     {
         // Print it
         for (size_t i = 0; i < argv.dim; i++)
@@ -653,7 +668,7 @@ int runLINK()
 
     if (pipe(fds) == -1)
     {
-        perror("Unable to create pipe to linker");
+        perror("unable to create pipe to linker");
         return -1;
     }
 
@@ -670,7 +685,7 @@ int runLINK()
     }
     else if (childpid == -1)
     {
-        perror("Unable to fork");
+        perror("unable to fork");
         return -1;
     }
     close(fds[1]);
@@ -684,7 +699,7 @@ int runLINK()
         {
             if (nme == -1)
             {
-                perror("Error with the linker pipe");
+                perror("error with the linker pipe");
                 return -1;
             }
             else
@@ -731,10 +746,10 @@ int executecmd(const char *cmd, const char *args)
     int status;
     size_t len;
 
-    if (!global.params.quiet || global.params.verbose)
+    if (global.params.verbose)
         fprintf(global.stdmsg, "%s %s\n", cmd, args);
 
-    if (!global.params.is64bit)
+    if (!global.params.mscoff)
     {
         if ((len = strlen(args)) > 255)
         {
@@ -753,9 +768,7 @@ int executecmd(const char *cmd, const char *args)
     }
 
     // Normalize executable path separators, see Bugzilla 9330
-    char *p = mem.strdup(cmd);
-    toWinPath(p);
-    cmd = p;
+    cmd = toWinPath(cmd);
 
 #ifdef _MSC_VER
     if(strchr(cmd, ' '))

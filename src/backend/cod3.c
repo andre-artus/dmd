@@ -517,7 +517,7 @@ void cod3_buildmodulector(Outbuffer* buf, int codeOffset, int refOffset)
         /* movl ModuleReference*, %eax */
         buf->writeByte(0xB8);
         codeOffset += 1;
-        const unsigned reltype = I64 ? R_X86_64_32 : RI_TYPE_SYM32;
+        const unsigned reltype = I64 ? R_X86_64_32 : R_386_32;
         codeOffset += ElfObj::writerel(seg, codeOffset, reltype, 3 /*STI_DATA*/, refOffset);
 
         /* movl _Dmodule_ref, %ecx */
@@ -754,10 +754,14 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
             nextb = bs2;
             bl->Bcode = NULL;
         L2:
+            if (configv.addlinenumbers && bl->Bsrcpos.Slinnum &&
+                !(funcsym_p->ty() & mTYnaked))
+            {
+                //printf("BCiftrue: %s(%u)\n", bl->Bsrcpos.Sfilename ? bl->Bsrcpos.Sfilename : "", bl->Bsrcpos.Slinnum);
+                cgen_linnum(&c,bl->Bsrcpos);
+            }
             if (nextb != bl->Bnext)
-            {   if (configv.addlinenumbers && bl->Bsrcpos.Slinnum &&
-                    !(funcsym_p->ty() & mTYnaked))
-                    cgen_linnum(&c,bl->Bsrcpos);
+            {
                 assert(!(bl->Bflags & BFLepilog));
                 c = cat(c,genjmp(CNIL,JMP,FLblock,nextb));
             }
@@ -1416,6 +1420,8 @@ void doswitch(block *b)
                 gen2sib(ce,LEA,(REX_W << 16) | modregxrm(0,r1,4),modregxrmx(0,r1,r2));    // LEA R1,[R1][R2]
                 gen2(ce,0xFF,modregrmx(3,4,r1));                                          // JMP R1
 
+                pinholeopt(ce, NULL);
+
                 b->Btablesize = (int) (vmax - vmin + 1) * 4;
             }
             else
@@ -1862,19 +1868,23 @@ int jmpopcode(elem *e)
         e = e->E2;                      /* right operand determines it  */
 
   op = e->Eoper;
+  tym_t tymx = tybasic(e->Ety);
+  bool needsNanCheck = tyfloating(tymx) && config.inline8087 &&
+    (tymx == TYldouble || tymx == TYildouble || tymx == TYcldouble ||
+     tymx == TYcdouble || tymx == TYcfloat ||
+     op == OPind ||
+     (OTcall(op) && (regmask(tymx, tybasic(e->E1->Eoper)) & (mST0 | XMMREGS))));
   if (e->Ecount != e->Ecomsub)          // comsubs just get Z bit set
-        return JNE;
+  {
+        if (needsNanCheck) // except for floating point values that need a NaN check
+            return XP|JNE;
+        else
+            return JNE;
+  }
   if (!OTrel(op))                       // not relational operator
   {
-        tym_t tymx = tybasic(e->Ety);
-        if (tyfloating(tymx) && config.inline8087 &&
-            (tymx == TYldouble || tymx == TYildouble || tymx == TYcldouble ||
-             tymx == TYcdouble || tymx == TYcfloat ||
-             op == OPind ||
-             (OTcall(op) && (regmask(tymx, tybasic(e->E1->Eoper)) & (mST0 | XMMREGS)))))
-        {
+        if (needsNanCheck)
             return XP|JNE;
-        }
         return ((op >= OPbt && op <= OPbts) || op == OPbtst) ? JC : JNE;
   }
 
@@ -2213,6 +2223,8 @@ code* gen_testcse(code *c, unsigned sz, targ_uns i)
                 FLcs,i, FLconst,(targ_uns) 0);
     if ((I64 || I32) && sz == 2)
         c->Iflags |= CFopsize;
+    if (I64 && sz == 8)
+        code_orrex(c, REX_W);
     return c;
 }
 
@@ -3939,12 +3951,22 @@ code* gen_spill_reg(Symbol* s, bool toreg)
         cs.orReg(s->Sreglsw);
         if (I64 && sz == 1 && s->Sreglsw >= 4)
             cs.Irex |= REX;
-        c = gen(c,&cs);
+        if ((cs.Irm & 0xC0) == 0xC0 &&                  // reg,reg
+            (((cs.Irm >> 3) ^ cs.Irm) & 7) == 0 &&      // registers match
+            (((cs.Irex >> 2) ^ cs.Irex) & 1) == 0)      // REX_R and REX_B match
+            ;                                           // skip MOV reg,reg
+        else
+            c = gen(c,&cs);
         if (sz > REGSIZE)
         {
             cs.setReg(s->Sregmsw);
             getlvalue_msw(&cs);
-            c = gen(c,&cs);
+            if ((cs.Irm & 0xC0) == 0xC0 &&              // reg,reg
+                (((cs.Irm >> 3) ^ cs.Irm) & 7) == 0 &&  // registers match
+                (((cs.Irex >> 2) ^ cs.Irex) & 1) == 0)  // REX_R and REX_B match
+                ;                                       // skip MOV reg,reg
+            else
+                c = gen(c,&cs);
         }
     }
 
@@ -4140,7 +4162,7 @@ void cod3_thunk(symbol *sthunk,symbol *sfunc,unsigned p,tym_t thisty,
     objmod->pubdef(cseg,sthunk,sthunk->Soffset);
 #endif
 #if TARGET_WINDOS
-    if (config.exe == EX_WIN64)
+    if (config.objfmt == OBJ_MSCOFF)
         objmod->pubdef(cseg,sthunk,sthunk->Soffset);
 #endif
     searchfixlist(sthunk);              /* resolve forward refs */
@@ -5143,7 +5165,8 @@ void pinholeopt(code *c,block *b)
                         break;
                     case 0x8F:  op = 0x58 + ereg; break;
                     case 0x87:
-                        if (reg == 0) op = 0x90 + ereg;
+                        if (reg == 0 && !(c->Irex & (REX_R | REX_B))) // Issue 12968: Needed to ensure it's referencing RAX, not R8
+                            op = 0x90 + ereg;
                         break;
                 }
                 c->Iop = op;
@@ -5226,7 +5249,8 @@ void pinholeopt(code *c,block *b)
             }
 
             // Replace [R13] with 0[R13]
-            if (c->Irex & REX_B && (c->Irm & modregrm(3,0,5)) == modregrm(0,0,5))
+            if (c->Irex & REX_B && ((c->Irm & modregrm(3,0,7)) == modregrm(0,0,BP) ||
+                                    issib(c->Irm) && (c->Irm & modregrm(3,0,0)) == 0 && (c->Isib & 7) == BP))
             {
                 c->Irm |= modregrm(1,0,0);
                 c->IFL1 = FLconst;

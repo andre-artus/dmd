@@ -1,9 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 2000-2013 by Digital Mars
-// All Rights Reserved
-// Written by Walter Bright
-// http://www.digitalmars.com
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/s2ir.c
+ */
 
 #include        <stdio.h>
 #include        <string.h>
@@ -39,26 +43,22 @@
 static char __file__[] = __FILE__;      // for tassert.h
 #include        "tassert.h"
 
-elem *callfunc(Loc loc,
-        IRState *irs,
-        int directcall,         // 1: don't do virtual call
-        Type *tret,             // return type
-        elem *ec,               // evaluates to function address
-        Type *ectype,           // original type of ec
-        FuncDeclaration *fd,    // if !=NULL, this is the function being called
-        Type *t,                // TypeDelegate or TypeFunction for this function
-        elem *ehidden,          // if !=NULL, this is the 'hidden' argument
-        Expressions *arguments);
-
 elem *exp2_copytotemp(elem *e);
 elem *incUsageElem(IRState *irs, Loc loc);
-StructDeclaration *needsPostblit(Type *t);
 elem *addressElem(elem *e, Type *t, bool alwaysCopy = false);
 Blocks *Blocks_create();
 type *Type_toCtype(Type *t);
+elem *toElemDtor(Expression *e, IRState *irs);
+Symbol *toSymbol(Type *t);
+unsigned totym(Type *tx);
+Symbol *toSymbol(Dsymbol *s);
 
-#define elem_setLoc(e,loc)      ((e)->Esrcpos.Sfilename = (char *)(loc).filename, \
-                                 (e)->Esrcpos.Slinnum = (loc).linnum)
+#define elem_setLoc(e,loc)      srcpos_setLoc(&(e)->Esrcpos, loc)
+#define block_setLoc(b,loc)     srcpos_setLoc(&(b)->Bsrcpos, loc)
+
+#define srcpos_setLoc(s,loc)    ((s)->Sfilename = (char *)(loc).filename, \
+                                 (s)->Slinnum = (loc).linnum, \
+                                 (s)->Scharnum = (loc).charnum)
 
 #define SEH     (TARGET_WINDOS)
 
@@ -160,7 +160,7 @@ public:
         elem *e;
         Blockx *blx = irs->blx;
 
-        //printf("IfStatement::toIR('%s')\n", condition->toChars());
+        //printf("IfStatement::toIR('%s')\n", s->condition->toChars());
 
         IRState mystate(irs, s);
 
@@ -168,7 +168,7 @@ public:
         block *bexit = mystate.breakBlock ? mystate.breakBlock : block_calloc();
 
         incUsage(irs, s->loc);
-        e = s->condition->toElemDtor(&mystate);
+        e = toElemDtor(s->condition, &mystate);
         block_appendexp(blx->curblock, e);
         block *bcond = blx->curblock;
         block_next(blx, BCiftrue, NULL);
@@ -205,7 +205,7 @@ public:
             Dsymbol *sa = getDsymbol(e);
             FuncDeclaration *f = sa->isFuncDeclaration();
             assert(f);
-            Symbol *sym = f->toSymbol();
+            Symbol *sym = toSymbol(f);
             while (irs->prev)
                 irs = irs->prev;
             irs->startaddress = sym;
@@ -244,7 +244,7 @@ public:
 
         block_next(blx, BCgoto, mystate.contBlock);
         incUsage(irs, s->condition->loc);
-        block_appendexp(mystate.contBlock, s->condition->toElemDtor(&mystate));
+        block_appendexp(mystate.contBlock, toElemDtor(s->condition, &mystate));
         block_next(blx, BCiftrue, mystate.breakBlock);
 
     }
@@ -254,6 +254,7 @@ public:
 
     void visit(ForStatement *s)
     {
+        //printf("visit(ForStatement)) %u..%u\n", s->loc.linnum, s->endloc.linnum);
         Blockx *blx = irs->blx;
 
         IRState mystate(irs,s);
@@ -270,7 +271,7 @@ public:
         if (s->condition)
         {
             incUsage(irs, s->condition->loc);
-            block_appendexp(bcond, s->condition->toElemDtor(&mystate));
+            block_appendexp(bcond, toElemDtor(s->condition, &mystate));
             block_next(blx,BCiftrue,NULL);
             bcond->appendSucc(blx->curblock);
             bcond->appendSucc(mystate.breakBlock);
@@ -287,12 +288,13 @@ public:
         /* End of the body goes to the continue block
          */
         blx->curblock->appendSucc(mystate.contBlock);
+        block_setLoc(blx->curblock, s->endloc);
         block_next(blx, BCgoto, mystate.contBlock);
 
         if (s->increment)
         {
             incUsage(irs, s->increment->loc);
-            block_appendexp(mystate.contBlock, s->increment->toElemDtor(&mystate));
+            block_appendexp(mystate.contBlock, toElemDtor(s->increment, &mystate));
         }
 
         /* The 'break' block follows the for statement.
@@ -343,6 +345,7 @@ public:
         /* Nothing more than a 'goto' to the current break destination
          */
         b->appendSucc(bbreak);
+        block_setLoc(b, s->loc);
         block_next(blx, BCgoto, NULL);
     }
 
@@ -370,6 +373,7 @@ public:
         /* Nothing more than a 'goto' to the current continue destination
          */
         b->appendSucc(bcont);
+        block_setLoc(b, s->loc);
         block_next(blx, BCgoto, NULL);
     }
 
@@ -389,22 +393,20 @@ public:
             return;
         block *b = blx->curblock;
         incUsage(irs, s->loc);
+        b->appendSucc(bdest);
+        block_setLoc(b, s->loc);
 
-        if (b->Btry != bdest->Btry)
+        // Check that bdest is in an enclosing try block
+        for (block *bt = b->Btry; bt != bdest->Btry; bt = bt->Btry)
         {
-            // Check that bdest is in an enclosing try block
-            for (block *bt = b->Btry; bt != bdest->Btry; bt = bt->Btry)
+            if (!bt)
             {
-                if (!bt)
-                {
-                    //printf("b->Btry = %p, bdest->Btry = %p\n", b->Btry, bdest->Btry);
-                    s->error("cannot goto into try block");
-                    break;
-                }
+                //printf("b->Btry = %p, bdest->Btry = %p\n", b->Btry, bdest->Btry);
+                s->error("cannot goto into try block");
+                break;
             }
         }
 
-        b->appendSucc(bdest);
         block_next(blx,BCgoto,NULL);
     }
 
@@ -484,7 +486,7 @@ public:
             numcases = s->cases->dim;
 
         incUsage(irs, s->loc);
-        elem *econd = s->condition->toElemDtor(&mystate);
+        elem *econd = toElemDtor(s->condition, &mystate);
         if (s->hasVars)
         {   /* Generate a sequence of if-then-else blocks for the cases.
              */
@@ -498,7 +500,7 @@ public:
             for (size_t i = 0; i < numcases; i++)
             {   CaseStatement *cs = (*s->cases)[i];
 
-                elem *ecase = cs->exp->toElemDtor(&mystate);
+                elem *ecase = toElemDtor(cs->exp, &mystate);
                 elem *e = el_bin(OPeqeq, TYbool, el_copytree(econd), ecase);
                 block *b = blx->curblock;
                 block_appendexp(b, e);
@@ -730,7 +732,7 @@ public:
 
         //printf("SwitchErrorStatement::toIR()\n");
 
-        elem *efilename = el_ptr(blx->module->toSymbol());
+        elem *efilename = el_ptr(toSymbol(blx->module));
         elem *elinnum = el_long(TYint, s->loc.linnum);
         elem *e = el_bin(OPcall, TYvoid, el_var(rtlsym[RTLSYM_DSWITCHERR]), el_param(elinnum, efilename));
         block_appendexp(blx->curblock, e);
@@ -753,7 +755,7 @@ public:
             assert(func->type->ty == Tfunction);
             TypeFunction *tf = (TypeFunction *)(func->type);
 
-            RET retmethod = tf->retStyle();
+            RET retmethod = retStyle(tf);
             if (retmethod == RETstack)
             {
                 elem *es;
@@ -768,12 +770,12 @@ public:
                     se->sym = irs->shidden;
                     se->soffset = 0;
                     se->fillHoles = 1;
-                    e = s->exp->toElemDtor(irs);
+                    e = toElemDtor(s->exp, irs);
                     memcpy((void*)se, save, sizeof(StructLiteralExp));
 
                 }
                 else
-                    e = s->exp->toElemDtor(irs);
+                    e = toElemDtor(s->exp, irs);
                 assert(e);
 
                 if (s->exp->op == TOKstructliteral ||
@@ -801,13 +803,14 @@ public:
                 e = el_bin(OPcomma, e->Ety, es, e);
             }
             else if (tf->isref)
-            {   // Reference return, so convert to a pointer
-                Expression *ae = s->exp->addressOf(NULL);
-                e = ae->toElemDtor(irs);
+            {
+                // Reference return, so convert to a pointer
+                e = toElemDtor(s->exp, irs);
+                e = addressElem(e, s->exp->type->pointerTo());
             }
             else
             {
-                e = s->exp->toElemDtor(irs);
+                e = toElemDtor(s->exp, irs);
                 assert(e);
             }
             elem_setLoc(e, s->loc);
@@ -817,17 +820,12 @@ public:
         else
             bc = BCret;
 
-        block *btry = blx->curblock->Btry;
-        if (btry)
+        if (block *finallyBlock = irs->getFinallyBlock())
         {
-            // A finally block is a successor to a return block inside a try-finally
-            if (btry->numSucc() == 2)      // try-finally
-            {
-                block *bfinally = btry->nthSucc(1);
-                assert(bfinally->BC == BC_finally);
-                blx->curblock->appendSucc(bfinally);
-            }
+            assert(finallyBlock->BC == BC_finally);
+            blx->curblock->appendSucc(finallyBlock);
         }
+
         block_next(blx, bc, NULL);
     }
 
@@ -841,28 +839,7 @@ public:
         //printf("ExpStatement::toIR(), exp = %s\n", exp ? exp->toChars() : "");
         incUsage(irs, s->loc);
         if (s->exp)
-            block_appendexp(blx->curblock,s->exp->toElemDtor(irs));
-    }
-
-    /**************************************
-     */
-
-    void visit(DtorExpStatement *s)
-    {
-        //printf("DtorExpStatement::toIR(), exp = %s\n", exp ? exp->toChars() : "");
-
-        FuncDeclaration *fd = irs->getFunc();
-        assert(fd);
-        if (fd->nrvo_can && fd->nrvo_var == s->var)
-            /* Do not call destructor, because var is returned as the nrvo variable.
-             * This is done at this stage because nrvo can be turned off at a
-             * very late stage in semantic analysis.
-             */
-            ;
-        else
-        {
-            visit((ExpStatement *)s);
-        }
+            block_appendexp(blx->curblock,toElemDtor(s->exp, irs));
     }
 
     /**************************************
@@ -963,13 +940,13 @@ public:
         else
         {
             // Declare with handle
-            sp = s->wthis->toSymbol();
+            sp = toSymbol(s->wthis);
             symbol_add(sp);
 
             // Perform initialization of with handle
             ie = s->wthis->init->isExpInitializer();
             assert(ie);
-            ei = ie->exp->toElemDtor(irs);
+            ei = toElemDtor(ie->exp, irs);
             e = el_var(sp);
             e = el_bin(OPeq,e->Ety, e, ei);
             elem_setLoc(e, s->loc);
@@ -992,7 +969,7 @@ public:
         Blockx *blx = irs->blx;
 
         incUsage(irs, s->loc);
-        elem *e = s->exp->toElemDtor(irs);
+        elem *e = toElemDtor(s->exp, irs);
         e = el_bin(OPcall, TYvoid, el_var(rtlsym[RTLSYM_THROWC]),e);
         block_appendexp(blx->curblock, e);
     }
@@ -1058,7 +1035,7 @@ public:
                 cs->var->csym = tryblock->jcatchvar;
             block *bcatch = blx->curblock;
             if (cs->type)
-                bcatch->Bcatchtype = cs->type->toBasetype()->toSymbol();
+                bcatch->Bcatchtype = toSymbol(cs->type->toBasetype());
             tryblock->appendSucc(bcatch);
             block_goto(blx, BCjcatch, NULL);
             if (cs->handler != NULL)
@@ -1070,11 +1047,11 @@ public:
                  */
                 if (cs->var && cs->var->offset)
                 {
-                    tym_t tym = cs->var->type->totym();
+                    tym_t tym = totym(cs->var->type);
                     elem *ex = el_var(irs->sclosure);
                     ex = el_bin(OPadd, TYnptr, ex, el_long(TYsize_t, cs->var->offset));
                     ex = el_una(OPind, tym, ex);
-                    ex = el_bin(OPeq, tym, ex, el_var(cs->var->toSymbol()));
+                    ex = el_bin(OPeq, tym, ex, el_var(toSymbol(cs->var)));
                     block_appendexp(catchState.blx->curblock, ex);
                 }
                 Statement_toIR(cs->handler, &catchState);
@@ -1125,6 +1102,7 @@ public:
         block *contblock = block_calloc(blx);
         tryblock->appendSucc(contblock);
         contblock->BC = BC_finally;
+        bodyirs.finallyBlock = contblock;
 
         if (s->body)
             Statement_toIR(s->body, &bodyirs);
@@ -1154,6 +1132,44 @@ public:
 
         finallyblock->appendSucc(blx->curblock);
         retblock->appendSucc(blx->curblock);
+
+        /* The BCfinally..BC_ret blocks form a function that gets called from stack unwinding.
+         * The successors to BC_ret blocks are both the next outer BCfinally and the destination
+         * after the unwinding is complete.
+         */
+        for (block *b = tryblock; b != finallyblock; b = b->Bnext)
+        {
+            block *btry = b->Btry;
+
+            if (b->BC == BCgoto && b->numSucc() == 1)
+            {
+                block *bdest = b->nthSucc(0);
+                if (btry && bdest->Btry != btry)
+                {
+                    //printf("test1 b %p b->Btry %p bdest %p bdest->Btry %p\n", b, btry, bdest, bdest->Btry);
+                    block *bfinally = btry->nthSucc(1);
+                    if (bfinally == finallyblock)
+                        b->appendSucc(finallyblock);
+                }
+            }
+
+            // If the goto exits a try block, then the finally block is also a successor
+            if (b->BC == BCgoto && b->numSucc() == 2) // if goto exited a tryblock
+            {
+                block *bdest = b->nthSucc(0);
+
+                // If the last finally block executed by the goto
+                if (bdest->Btry == tryblock->Btry)
+                    // The finally block will exit and return to the destination block
+                    retblock->appendSucc(bdest);
+            }
+
+            if (b->BC == BC_ret && b->Btry == tryblock)
+            {
+                // b is nested inside this TryFinally, and so this finally will be called next
+                b->appendSucc(finallyblock);
+            }
+        }
     }
 
     /****************************************
@@ -1202,7 +1218,7 @@ public:
 
                 case FLdsymbol:
                 case FLfunc:
-                    sym = c->IEVdsym1->toSymbol();
+                    sym = toSymbol(c->IEVdsym1);
                     if (sym->Sclass == SCauto && sym->Ssymnum == -1)
                         symbol_add(sym);
                     c->IEVsym1 = sym;
@@ -1225,7 +1241,7 @@ public:
                 case FLdsymbol:
                 case FLfunc:
                     d = c->IEVdsym2;
-                    sym = d->toSymbol();
+                    sym = toSymbol(d);
                     if (sym->Sclass == SCauto && sym->Ssymnum == -1)
                         symbol_add(sym);
                     c->IEVsym2 = sym;

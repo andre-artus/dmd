@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/statement.h
+ */
 
 #ifndef DMD_STATEMENT_H
 #define DMD_STATEMENT_H
@@ -34,7 +35,6 @@ class VarDeclaration;
 class Condition;
 class Module;
 struct Token;
-struct InlineDoState;
 class ErrorStatement;
 class ReturnStatement;
 class CompoundStatement;
@@ -48,23 +48,19 @@ class TryFinallyStatement;
 class CaseStatement;
 class DefaultStatement;
 class LabelStatement;
-struct HdrGenState;
-struct InterState;
-struct CompiledCtfeFunction;
 
 enum TOK;
 
 // Back end
-struct IRState;
-struct Blockx;
 #ifdef IN_GCC
 typedef union tree_node block;
-typedef union tree_node elem;
 #else
 struct block;
-struct elem;
 #endif
 struct code;
+
+bool inferAggregate(ForeachStatement *fes, Scope *sc, Dsymbol *&sapply);
+bool inferApplyArgTypes(ForeachStatement *fes, Scope *sc, Dsymbol *&sapply);
 
 /* How a statement exits; this is returned by blockExit()
  */
@@ -96,7 +92,6 @@ public:
     void error(const char *format, ...);
     void warning(const char *format, ...);
     void deprecation(const char *format, ...);
-    virtual void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     virtual Statement *semantic(Scope *sc);
     Statement *semanticScope(Scope *sc, Statement *sbreak, Statement *scontinue);
     Statement *semanticNoScope(Scope *sc);
@@ -104,17 +99,12 @@ public:
     virtual bool hasBreak();
     virtual bool hasContinue();
     bool usesEH();
-    virtual int blockExit(bool mustNotThrow);
+    int blockExit(FuncDeclaration *func, bool mustNotThrow);
     bool comeFrom();
     bool hasCode();
     virtual Statement *scopeCode(Scope *sc, Statement **sentry, Statement **sexit, Statement **sfinally);
     virtual Statements *flatten(Scope *sc);
-    virtual Expression *interpret(InterState *istate);
-    virtual void ctfeCompile(CompiledCtfeFunction *ccf);
     virtual Statement *last();
-
-    virtual Expression *doInline(InlineDoState *ids);
-    virtual Statement *doInlineStatement(InlineDoState *ids);
 
     // Avoid dynamic_cast
     virtual ErrorStatement *isErrorStatement() { return NULL; }
@@ -126,6 +116,7 @@ public:
     virtual CaseStatement *isCaseStatement() { return NULL; }
     virtual DefaultStatement *isDefaultStatement() { return NULL; }
     virtual LabelStatement *isLabelStatement() { return NULL; }
+    virtual DtorExpStatement *isDtorExpStatement() { return NULL; }
     virtual void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -138,7 +129,6 @@ public:
     ErrorStatement();
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
 
     ErrorStatement *isErrorStatement() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -163,15 +153,8 @@ public:
     ExpStatement(Loc loc, Dsymbol *s);
     static ExpStatement *create(Loc loc, Expression *exp);
     Statement *syntaxCopy();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Statement *semantic(Scope *sc);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    int blockExit(bool mustNotThrow);
     Statement *scopeCode(Scope *sc, Statement **sentry, Statement **sexit, Statement **sfinally);
-
-    Expression *doInline(InlineDoState *ids);
-    Statement *doInlineStatement(InlineDoState *ids);
 
     ExpStatement *isExpStatement() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -188,6 +171,8 @@ public:
     DtorExpStatement(Loc loc, Expression *exp, VarDeclaration *v);
     Statement *syntaxCopy();
     void accept(Visitor *v) { v->visit(this); }
+
+    DtorExpStatement *isDtorExpStatement() { return this; }
 };
 
 class CompileStatement : public Statement
@@ -197,10 +182,8 @@ public:
 
     CompileStatement(Loc loc, Expression *exp);
     Statement *syntaxCopy();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Statements *flatten(Scope *sc);
     Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -214,17 +197,10 @@ public:
     CompoundStatement(Loc loc, Statement *s1, Statement *s2);
     static CompoundStatement *create(Loc loc, Statement *s1, Statement *s2);
     Statement *syntaxCopy();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
     Statements *flatten(Scope *sc);
     ReturnStatement *isReturnStatement();
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
     Statement *last();
-
-    Expression *doInline(InlineDoState *ids);
-    Statement *doInlineStatement(InlineDoState *ids);
 
     CompoundStatement *isCompoundStatement() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -235,7 +211,6 @@ class CompoundDeclarationStatement : public CompoundStatement
 public:
     CompoundDeclarationStatement(Loc loc, Statements *s);
     Statement *syntaxCopy();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -252,13 +227,6 @@ public:
     Statement *semantic(Scope *sc);
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-
-    Expression *doInline(InlineDoState *ids);
-    Statement *doInlineStatement(InlineDoState *ids);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -270,18 +238,11 @@ public:
 
     ScopeStatement(Loc loc, Statement *s);
     Statement *syntaxCopy();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     ScopeStatement *isScopeStatement() { return this; }
     ReturnStatement *isReturnStatement();
     Statement *semantic(Scope *sc);
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-
-    Expression *doInline(InlineDoState *ids);
-    Statement *doInlineStatement(InlineDoState *ids);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -291,16 +252,13 @@ class WhileStatement : public Statement
 public:
     Expression *condition;
     Statement *body;
+    Loc endloc;                 // location of closing curly bracket
 
-    WhileStatement(Loc loc, Expression *c, Statement *b);
+    WhileStatement(Loc loc, Expression *c, Statement *b, Loc endloc);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -316,10 +274,6 @@ public:
     Statement *semantic(Scope *sc);
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -331,25 +285,20 @@ public:
     Expression *condition;
     Expression *increment;
     Statement *body;
+    Loc endloc;                 // location of closing curly bracket
 
     // When wrapped in try/finally clauses, this points to the outermost one,
     // which may have an associated label. Internal break/continue statements
     // treat that label as referring to this loop.
     Statement *relatedLabeled;
 
-    ForStatement(Loc loc, Statement *init, Expression *condition, Expression *increment, Statement *body);
+    ForStatement(Loc loc, Statement *init, Expression *condition, Expression *increment, Statement *body, Loc endloc);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     Statement *scopeCode(Scope *sc, Statement **sentry, Statement **sexit, Statement **sfinally);
     Statement *getRelatedLabeled() { return relatedLabeled ? relatedLabeled : this; }
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-
-    Statement *doInlineStatement(InlineDoState *ids);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -357,10 +306,11 @@ public:
 class ForeachStatement : public Statement
 {
 public:
-    TOK op;                // TOKforeach or TOKforeach_reverse
-    Parameters *arguments;      // array of Parameter*'s
+    TOK op;                     // TOKforeach or TOKforeach_reverse
+    Parameters *parameters;     // array of Parameter*'s
     Expression *aggr;
     Statement *body;
+    Loc endloc;                 // location of closing curly bracket
 
     VarDeclaration *key;
     VarDeclaration *value;
@@ -370,18 +320,12 @@ public:
     Statements *cases;          // put breaks, continues, gotos and returns here
     ScopeStatements *gotos;     // forward referenced goto's go here
 
-    ForeachStatement(Loc loc, TOK op, Parameters *arguments, Expression *aggr, Statement *body);
+    ForeachStatement(Loc loc, TOK op, Parameters *parameters, Expression *aggr, Statement *body, Loc endloc);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     bool checkForArgTypes();
-    int inferAggregate(Scope *sc, Dsymbol *&sapply);
-    int inferApplyArgTypes(Scope *sc, Dsymbol *&sapply);
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -389,24 +333,21 @@ public:
 class ForeachRangeStatement : public Statement
 {
 public:
-    TOK op;                // TOKforeach or TOKforeach_reverse
-    Parameter *arg;             // loop index variable
+    TOK op;                     // TOKforeach or TOKforeach_reverse
+    Parameter *prm;             // loop index variable
     Expression *lwr;
     Expression *upr;
     Statement *body;
+    Loc endloc;                 // location of closing curly bracket
 
     VarDeclaration *key;
 
-    ForeachRangeStatement(Loc loc, TOK op, Parameter *arg,
-        Expression *lwr, Expression *upr, Statement *body);
+    ForeachRangeStatement(Loc loc, TOK op, Parameter *prm,
+        Expression *lwr, Expression *upr, Statement *body, Loc endloc);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -414,24 +355,17 @@ public:
 class IfStatement : public Statement
 {
 public:
-    Parameter *arg;
+    Parameter *prm;
     Expression *condition;
     Statement *ifbody;
     Statement *elsebody;
 
     VarDeclaration *match;      // for MatchExpression results
 
-    IfStatement(Loc loc, Parameter *arg, Expression *condition, Statement *ifbody, Statement *elsebody);
+    IfStatement(Loc loc, Parameter *prm, Expression *condition, Statement *ifbody, Statement *elsebody);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    int blockExit(bool mustNotThrow);
     IfStatement *isIfStatement() { return this; }
-
-    Expression *doInline(InlineDoState *ids);
-    Statement *doInlineStatement(InlineDoState *ids);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -447,9 +381,7 @@ public:
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     Statements *flatten(Scope *sc);
-    int blockExit(bool mustNotThrow);
 
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -463,9 +395,6 @@ public:
     PragmaStatement(Loc loc, Identifier *ident, Expressions *args, Statement *body);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
-
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -478,9 +407,7 @@ public:
     StaticAssertStatement(StaticAssert *sa);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
 
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -502,10 +429,6 @@ public:
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     bool hasBreak();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -523,10 +446,6 @@ public:
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     int compare(RootObject *obj);
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     CaseStatement *isCaseStatement() { return this; }
 
     void accept(Visitor *v) { v->visit(this); }
@@ -543,7 +462,6 @@ public:
     CaseRangeStatement(Loc loc, Expression *first, Expression *last, Statement *s);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -559,10 +477,6 @@ public:
     DefaultStatement(Loc loc, Statement *s);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     DefaultStatement *isDefaultStatement() { return this; }
 
     void accept(Visitor *v) { v->visit(this); }
@@ -576,10 +490,6 @@ public:
     GotoDefaultStatement(Loc loc);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    int blockExit(bool mustNotThrow);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -593,10 +503,6 @@ public:
     GotoCaseStatement(Loc loc, Expression *exp);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    int blockExit(bool mustNotThrow);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -605,9 +511,6 @@ class SwitchErrorStatement : public Statement
 {
 public:
     SwitchErrorStatement(Loc loc);
-    int blockExit(bool mustNotThrow);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -616,18 +519,11 @@ class ReturnStatement : public Statement
 {
 public:
     Expression *exp;
-    bool implicit0;             // this is an implicit "return 0;"
+    size_t caseDim;
 
     ReturnStatement(Loc loc, Expression *exp);
     Statement *syntaxCopy();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-
-    Expression *doInline(InlineDoState *ids);
-    Statement *doInlineStatement(InlineDoState *ids);
 
     ReturnStatement *isReturnStatement() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -641,10 +537,6 @@ public:
     BreakStatement(Loc loc, Identifier *ident);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    int blockExit(bool mustNotThrow);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -657,10 +549,6 @@ public:
     ContinueStatement(Loc loc, Identifier *ident);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    int blockExit(bool mustNotThrow);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -676,12 +564,7 @@ public:
     Statement *semantic(Scope *sc);
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
-// Back end
-    elem *esync;
-    SynchronizedStatement(Loc loc, elem *esync, Statement *body);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -695,10 +578,6 @@ public:
     WithStatement(Loc loc, Expression *exp, Statement *body);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -713,11 +592,7 @@ public:
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     bool hasBreak();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
 
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -736,8 +611,6 @@ public:
     Catch(Loc loc, Type *t, Identifier *id, Statement *handler);
     Catch *syntaxCopy();
     void semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 };
 
 class TryFinallyStatement : public Statement
@@ -749,13 +622,9 @@ public:
     TryFinallyStatement(Loc loc, Statement *body, Statement *finalbody);
     static TryFinallyStatement *create(Loc loc, Statement *body, Statement *finalbody);
     Statement *syntaxCopy();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Statement *semantic(Scope *sc);
     bool hasBreak();
     bool hasContinue();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -768,12 +637,8 @@ public:
 
     OnScopeStatement(Loc loc, TOK tok, Statement *statement);
     Statement *syntaxCopy();
-    int blockExit(bool mustNotThrow);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Statement *semantic(Scope *sc);
     Statement *scopeCode(Scope *sc, Statement **sentry, Statement **sexit, Statement **sfinally);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -789,10 +654,6 @@ public:
     ThrowStatement(Loc loc, Expression *exp);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -806,7 +667,6 @@ public:
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     Statements *flatten(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -816,18 +676,14 @@ public:
     Identifier *ident;
     LabelDsymbol *label;
     TryFinallyStatement *tf;
+    OnScopeStatement *os;
     VarDeclaration *lastVar;
-    FuncDeclaration *fd;
 
     GotoStatement(Loc loc, Identifier *ident);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     bool checkLabel();
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
 
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -837,20 +693,18 @@ public:
     Identifier *ident;
     Statement *statement;
     TryFinallyStatement *tf;
-    Statement *gotoTarget;      // interpret
+    OnScopeStatement *os;
     VarDeclaration *lastVar;
-    block *lblock;              // back end
+    Statement *gotoTarget;      // interpret
 
+    block *lblock;              // back end
     Blocks *fwdrefs;            // forward references to this LabelStatement
 
     LabelStatement(Loc loc, Identifier *ident, Statement *statement);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     Statements *flatten(Scope *sc);
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
+    Statement *scopeCode(Scope *sc, Statement **sentry, Statement **sexit, Statement **sfinally);
 
     LabelStatement *isLabelStatement() { return this; }
 
@@ -868,6 +722,8 @@ public:
     void accept(Visitor *v) { v->visit(this); }
 };
 
+Statement* asmSemantic(AsmStatement *s, Scope *sc);
+
 class AsmStatement : public Statement
 {
 public:
@@ -875,19 +731,29 @@ public:
     code *asmcode;
     unsigned asmalign;          // alignment of this statement
     unsigned regs;              // mask of registers modified (must match regm_t in back end)
-    unsigned char refparam;     // !=0 if function parameter is referenced
-    unsigned char naked;        // !=0 if function is to be naked
+    bool refparam;              // true if function parameter is referenced
+    bool naked;                 // true if function is to be naked
 
     AsmStatement(Loc loc, Token *tokens);
     Statement *syntaxCopy();
-    Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
+    Statement *semantic(Scope *sc)
+    {
+        return asmSemantic(this, sc);
+    }
 
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
+    void accept(Visitor *v) { v->visit(this); }
+};
 
-    //Expression *doInline(InlineDoState *ids);
+// a complete asm {} block
+class CompoundAsmStatement : public CompoundStatement
+{
+public:
+    StorageClass stc; // postfix attributes like nothrow/pure/@trusted
+
+    CompoundAsmStatement(Loc loc, Statements *s, StorageClass stc);
+    CompoundAsmStatement *syntaxCopy();
+    CompoundAsmStatement *semantic(Scope *sc);
+    Statements *flatten(Scope *sc);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -900,14 +766,6 @@ public:
     ImportStatement(Loc loc, Dsymbols *imports);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
-    int blockExit(bool mustNotThrow);
-    Expression *interpret(InterState *istate);
-    void ctfeCompile(CompiledCtfeFunction *ccf);
-
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-
-    Expression *doInline(InlineDoState *ids);
-    Statement *doInlineStatement(InlineDoState *ids);
 
     void accept(Visitor *v) { v->visit(this); }
 };

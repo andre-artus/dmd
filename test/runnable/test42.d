@@ -3,7 +3,7 @@
 module test42;
 
 import std.stdio;
-import std.c.stdio;
+import core.stdc.stdio;
 import std.string;
 import core.memory;
 
@@ -1564,12 +1564,12 @@ void test94()
 
 struct X95
 {
-   import std.c.stdio;
+   import core.stdc.stdio;
 }
 
 void test95()
 {
-   X95.std.c.stdio.printf("hello\n");
+   X95.core.stdc.stdio.printf("hello\n");
 }
 
 /***************************************************/
@@ -2090,6 +2090,42 @@ void test129()
     int[] a = [ 1, 2, 3 ];
     auto r = retro129(a);
     auto i = begin129(r);
+}
+
+/***************************************************/
+// 12725
+
+struct R12725(R : E[], E)
+{
+}
+
+int begin12725(F)(R12725!(F) range)
+{
+    return 0;
+}
+
+void test12725()
+{
+    R12725!(int[], int) r;
+    auto i = begin12725(r);
+}
+
+/***************************************************/
+// 12728
+
+struct Matrix12728(T, uint m, uint n = m, ubyte f = 0)
+{
+    void foo(uint r)(auto ref in Matrix12728!(T, n, r) b)
+    {
+    }
+}
+
+void test12728()
+{
+    alias Matrix4 = Matrix12728!(float, 4);
+
+    Matrix4 m;
+    m.foo(m);
 }
 
 /***************************************************/
@@ -5825,6 +5861,23 @@ void test7436()
 }
 
 /***************************************************/
+// 12138
+
+struct S12138
+{
+    int num;
+    this(int n) { num = n; }
+    ~this() { num = 0; }
+}
+
+void test12138()
+{
+label:
+    auto s = S12138(10);
+    assert(s.num == 10);
+}
+
+/***************************************************/
 
 int main()
 {
@@ -6115,6 +6168,7 @@ int main()
     test10633();
     test10642();
     test7436();
+    test12138();
 
     writefln("Success");
     return 0;

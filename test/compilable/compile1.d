@@ -11,6 +11,36 @@ class C1748(T) {}
 static assert(C1748!int.stringof == "C1748!int");
 
 /**************************************************
+    2438
+**************************************************/
+
+alias void delegate() Dg2438;
+
+alias typeof(Dg2438.ptr)     CP2438a;
+alias typeof(Dg2438.funcptr) FP2438a;
+static assert(is(CP2438a == void*));
+static assert(is(FP2438a == void function()));
+
+alias typeof(Dg2438.init.ptr)     CP2438b;
+alias typeof(Dg2438.init.funcptr) FP2438b;
+static assert(is(CP2438b == void*));
+static assert(is(FP2438b == void function()));
+
+/**************************************************
+    4225
+**************************************************/
+
+struct Foo4225
+{
+    enum x = Foo4225();
+
+    static Foo4225 opCall()
+    {
+        return Foo4225.init;
+    }
+}
+
+/**************************************************
     5996    ICE(expression.c)
 **************************************************/
 
@@ -400,6 +430,25 @@ struct Bug7058
 
 /***************************************************/
 
+void test12094()
+{
+    auto n = null;
+    int *a;
+    int[int] b;
+    int[] c;
+    auto u = true ? null : a;
+    auto v = true ? null : b;
+    auto w = true ? null : c;
+    auto x = true ? n : a;
+    auto y = true ? n : b;
+    auto z = true ? n : c;
+    a = n;
+    b = n;
+    c = n;
+}
+
+/***************************************************/
+
 template test8163(T...)
 {
     struct Point
@@ -425,6 +474,26 @@ alias test8163!(ushort, ushort, ushort, ushort) _SSSS;
 alias test8163!(ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, ubyte) _BBBBBBBB;
 alias test8163!(ubyte, ubyte, ushort, float) _BBSf;
 
+
+/***************************************************/
+// 4757
+
+auto foo4757(T)(T)
+{
+    static struct Bar(T)
+    {
+        void spam()
+        {
+            foo4757(1);
+        }
+    }
+    return Bar!T();
+}
+
+void test4757()
+{
+    foo4757(1);
+}
 
 /***************************************************/
 // 9348
@@ -473,6 +542,40 @@ static if (is(object.ModuleInfo == class))
 }
 
 /***************************************************/
+// 10326
+
+class C10326
+{
+    int val;
+    invariant   { assert(val == 0); }
+    invariant() { assert(val == 0); }
+}
+
+/***************************************************/
+// 11042
+
+static if           ((true  || error) == true ) {} else { static assert(0); }
+static if           ((false && error) == false) {} else { static assert(0); }
+static assert       ((true  || error) == true );
+static assert       ((false && error) == false);
+int f11042a1()() if ((true  || error) == true ) { return 0; }   enum x11042a1 = f11042a1();
+int f11042b1()() if ((false && error) == false) { return 0; }   enum x11042b1 = f11042b1();
+
+static if           (is(typeof(true  || error)) == false) {} else { static assert(0); }
+static if           (is(typeof(false && error)) == false) {} else { static assert(0); }
+static assert       (is(typeof(true  || error)) == false);
+static assert       (is(typeof(false && error)) == false);
+int f11042a2()() if (is(typeof(true  || error)) == false) { return 0; }   enum x11042a2 = f11042a2();
+int f11042b2()() if (is(typeof(false && error)) == false) { return 0; }   enum x11042b2 = f11042b2();
+
+static if           (__traits(compiles, true  || error) == false) {} else { static assert(0); }
+static if           (__traits(compiles, false && error) == false) {} else { static assert(0); }
+static assert       (__traits(compiles, true  || error) == false);
+static assert       (__traits(compiles, false && error) == false);
+int f11042a3()() if (__traits(compiles, true  || error) == false) { return 0; }   enum x11042a3 = f11042a3();
+int f11042b3()() if (__traits(compiles, false && error) == false) { return 0; }   enum x11042b3 = f11042b3();
+
+/***************************************************/
 // 11554
 
 enum E11554;
@@ -480,3 +583,171 @@ static assert(is(E11554 == enum));
 
 struct Bro11554(N...) {}
 static assert(!is(E11554 unused : Bro11554!M, M...));
+
+/***************************************************/
+// 12302
+
+template isCallable12302(T...)
+    if (T.length == 1)
+{
+    static if (is(typeof(& T[0].opCall) == delegate))
+        enum bool isCallable12302 = true;
+    else
+    static if (is(typeof(& T[0].opCall) V : V*) && is(V == function))
+        enum bool isCallable12302 = true;
+    else
+        enum bool isCallable12302 = true;
+}
+
+class A12302
+{
+    struct X {}
+    X x;
+    auto opDispatch(string s, TArgs...)(TArgs args)
+    {
+        mixin("return x."~s~"(args);");
+    }
+}
+
+A12302 func12302() { return null; }
+enum b12302 = isCallable12302!func12302;
+
+/***************************************************/
+// 12476
+
+template A12476(T) {  }
+
+struct S12476(T)
+{
+    alias B = A12476!T;
+}
+
+class C12476(T)
+{
+    alias B = A12476!T;
+}
+
+struct Bar12476(alias Foo)
+{
+    Foo!int baz;
+    alias baz this;
+}
+
+alias Identity12476(alias A) = A;
+
+alias sb12476 = Identity12476!(Bar12476!S12476.B);
+alias cb12476 = Identity12476!(Bar12476!C12476.B);
+
+static assert(__traits(isSame, sb12476, A12476!int));
+static assert(__traits(isSame, cb12476, A12476!int));
+
+/***************************************************/
+// 12506
+
+import imports.a12506;
+private           bool[9] r12506a = f12506!(i => true)(); // OK
+private immutable bool[9] r12506b = f12506!(i => true)(); // OK <- error
+
+/***************************************************/
+// 12555
+
+class A12555(T)
+{
+    Undef12555 error;
+}
+
+static assert(!__traits(compiles, {
+    class C : A12555!C  { }
+}));
+
+/***************************************************/
+// 11622
+
+class A11622(T)
+{
+    B11622!T foo()
+    {
+        return new B11622!T;
+    }
+}
+
+class B11622(T) : T
+{
+}
+
+static assert(!__traits(compiles, {
+    class C : A11622!C  { }
+}));
+
+/***************************************************/
+// 12688
+
+void writeln12688(A...)(A) {}
+
+struct S12688
+{
+    int foo() @property { return 1; }
+}
+
+void test12688()
+{
+    S12688 s;
+    s.foo.writeln12688;   // ok
+    (s.foo).writeln12688; // ok <- ng
+}
+
+/***************************************************/
+// 12703
+
+struct S12703
+{
+    this(int) {}
+}
+
+final class C12703
+{
+    S12703 s = S12703(1);
+}
+
+/***************************************************/
+// 13481
+
+mixin template Mix13481(void function() callback)
+{
+    static this()
+    {
+        callback();
+    }
+}
+
+void sort13481() { int[] arr; arr.sort; }
+mixin Mix13481!(&sort13481);
+
+mixin Mix13481!({ int[] arr; arr.sort; });
+
+/***************************************************/
+// 13564
+
+class E13564(T)
+{
+    int pos;
+}
+
+class C13564(T)
+{
+    struct S
+    {
+        ~this()
+        {
+            C13564!int c;
+            c.element.pos = 0;
+        }
+    }
+
+    E13564!T element;
+}
+
+void test13564()
+{
+    auto c = new C13564!int();
+}

@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/typinf.c
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -30,7 +31,8 @@
 
 #include "dt.h"
 
-Parameters *Parameters_create();
+Symbol *toSymbol(Dsymbol *s);
+dt_t **Expression_toDt(Expression *e, dt_t **pdt);
 
 /*******************************************
  * Get a canonicalized form of the TypeInfo for use with the internal
@@ -79,7 +81,7 @@ Expression *Type::getInternalTypeInfo(Scope *sc)
                 internalTI[t->ty] = tid;
             }
             e = VarExp::create(Loc(), tid);
-            e = e->addressOf(sc);
+            e = e->addressOf();
             e->type = tid->type;        // do this so we don't get redundant dereference
             return e;
 
@@ -91,16 +93,15 @@ Expression *Type::getInternalTypeInfo(Scope *sc)
 }
 
 
-FuncDeclaration *search_toHash(StructDeclaration *sd);
 FuncDeclaration *search_toString(StructDeclaration *sd);
 
 /****************************************************
  * Get the exact TypeInfo.
  */
 
-Expression *Type::getTypeInfo(Scope *sc)
+void Type::genTypeInfo(Scope *sc)
 {
-    //printf("Type::getTypeInfo() %p, %s\n", this, toChars());
+    //printf("Type::genTypeInfo() %p, %s\n", this, toChars());
     if (!Type::dtypeinfo)
     {
         error(Loc(), "TypeInfo not found. object.d may be incorrectly installed or corrupt, compile with -v switch");
@@ -121,7 +122,6 @@ Expression *Type::getTypeInfo(Scope *sc)
         else
             t->vtinfo = t->getTypeInfoDeclaration();
         assert(t->vtinfo);
-        vtinfo = t->vtinfo;
 
         /* If this has a custom implementation in std/typeinfo, then
          * do not generate a COMDAT for it.
@@ -131,25 +131,18 @@ Expression *Type::getTypeInfo(Scope *sc)
             // Generate COMDAT
             if (sc)                     // if in semantic() pass
             {
-                // Find module that will go all the way to an object file
-                Module *m = sc->module->importedFrom;
-                m->members->push(t->vtinfo);
-
-                if (ty == Tstruct)
+                if (sc->func && !sc->func->isInstantiated() && sc->func->inNonRoot())
                 {
-                    Dsymbol *s;
-                    StructDeclaration *sd = ((TypeStruct *)this)->sym;
-                    if ((sd->xeq  && sd->xeq  != sd->xerreq  ||
-                         sd->xcmp && sd->xcmp != sd->xerrcmp ||
-                         (sd->postblit && !(sd->postblit->storage_class & STCdisable)) ||
-                         sd->dtor ||
-                         search_toHash(sd) ||
-                         search_toString(sd)
-                        ) && sd->inNonRoot())
-                    {
-                        //printf("deferred sem3 for TypeInfo - sd = %s, inNonRoot = %d\n", sd->toChars(), sd->inNonRoot());
-                        Module::addDeferredSemantic3(sd);
-                    }
+                    // Bugzilla 13043: Avoid linking TypeInfo if it's not
+                    // necessary for root module compilation
+                }
+                else
+                {
+                    // Find module that will go all the way to an object file
+                    Module *m = sc->module->importedFrom;
+                    m->members->push(t->vtinfo);
+
+                    semanticTypeInfo(sc, t);
                 }
             }
             else                        // if in obj generation pass
@@ -160,9 +153,16 @@ Expression *Type::getTypeInfo(Scope *sc)
     }
     if (!vtinfo)
         vtinfo = t->vtinfo;     // Types aren't merged, but we can share the vtinfo's
-    Expression *e = VarExp::create(Loc(), t->vtinfo);
-    e = e->addressOf(sc);
-    e->type = t->vtinfo->type;          // do this so we don't get redundant dereference
+    assert(vtinfo);
+}
+
+Expression *Type::getTypeInfo(Scope *sc)
+{
+    assert(ty != Terror);
+    genTypeInfo(sc);
+    Expression *e = VarExp::create(Loc(), vtinfo);
+    e = e->addressOf();
+    e->type = vtinfo->type;     // do this so we don't get redundant dereference
     return e;
 }
 
@@ -170,11 +170,6 @@ TypeInfoDeclaration *Type::getTypeInfoDeclaration()
 {
     //printf("Type::getTypeInfoDeclaration() %s\n", toChars());
     return TypeInfoDeclaration::create(this, 0);
-}
-
-TypeInfoDeclaration *TypeTypedef::getTypeInfoDeclaration()
-{
-    return TypeInfoTypedefDeclaration::create(this);
 }
 
 TypeInfoDeclaration *TypePointer::getTypeInfoDeclaration()
@@ -251,8 +246,8 @@ private:
             if (typeclass->structsize != expected)
             {
 #ifdef DEBUG
-                printf("expected = x%x, %s.structsize = x%x\n", expected,
-                    typeclass->toChars(), typeclass->structsize);
+                printf("expected = x%x, %s.structsize = x%x\n", (unsigned)expected,
+                    typeclass->toChars(), (unsigned)typeclass->structsize);
 #endif
                 error(typeclass->loc, "mismatch between compiler and object.d or object.di found. Check installation and import paths with -v compiler switch.");
                 fatal();
@@ -283,8 +278,8 @@ public:
         dtsize_t(pdt, 0);                        // monitor
         Type *tm = d->tinfo->mutableOf();
         tm = tm->merge();
-        tm->getTypeInfo(NULL);
-        dtxoff(pdt, tm->vtinfo->toSymbol(), 0);
+        tm->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tm->vtinfo), 0);
     }
 
     void visit(TypeInfoInvariantDeclaration *d)
@@ -296,8 +291,8 @@ public:
         dtsize_t(pdt, 0);                        // monitor
         Type *tm = d->tinfo->mutableOf();
         tm = tm->merge();
-        tm->getTypeInfo(NULL);
-        dtxoff(pdt, tm->vtinfo->toSymbol(), 0);
+        tm->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tm->vtinfo), 0);
     }
 
     void visit(TypeInfoSharedDeclaration *d)
@@ -309,8 +304,8 @@ public:
         dtsize_t(pdt, 0);                        // monitor
         Type *tm = d->tinfo->unSharedOf();
         tm = tm->merge();
-        tm->getTypeInfo(NULL);
-        dtxoff(pdt, tm->vtinfo->toSymbol(), 0);
+        tm->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tm->vtinfo), 0);
     }
 
     void visit(TypeInfoWildDeclaration *d)
@@ -322,52 +317,8 @@ public:
         dtsize_t(pdt, 0);                        // monitor
         Type *tm = d->tinfo->mutableOf();
         tm = tm->merge();
-        tm->getTypeInfo(NULL);
-        dtxoff(pdt, tm->vtinfo->toSymbol(), 0);
-    }
-
-    void visit(TypeInfoTypedefDeclaration *d)
-    {
-        //printf("TypeInfoTypedefDeclaration::toDt() %s\n", toChars());
-        verifyStructSize(Type::typeinfotypedef, 7 * Target::ptrsize);
-
-        dtxoff(pdt, Type::typeinfotypedef->toVtblSymbol(), 0); // vtbl for TypeInfo_Typedef
-        dtsize_t(pdt, 0);                        // monitor
-
-        assert( d->tinfo->ty == Ttypedef);
-
-        TypeTypedef *tc = (TypeTypedef *)d->tinfo;
-        TypedefDeclaration *sd = tc->sym;
-        //printf("basetype = %s\n", sd->basetype->toChars());
-
-        /* Put out:
-         *  TypeInfo base;
-         *  char[] name;
-         *  void[] m_init;
-         */
-
-        sd->basetype = sd->basetype->merge();
-        sd->basetype->getTypeInfo(NULL);            // generate vtinfo
-        assert(sd->basetype->vtinfo);
-        dtxoff(pdt, sd->basetype->vtinfo->toSymbol(), 0);   // TypeInfo for basetype
-
-        const char *name = sd->toPrettyChars();
-        size_t namelen = strlen(name);
-        dtsize_t(pdt, namelen);
-        dtabytes(pdt, 0, namelen + 1, name);
-
-        // void[] init;
-        if (d->tinfo->isZeroInit() || !sd->init)
-        {
-            // 0 initializer, or the same as the base type
-            dtsize_t(pdt, 0);        // init.length
-            dtsize_t(pdt, 0);        // init.ptr
-        }
-        else
-        {
-            dtsize_t(pdt, sd->type->size()); // init.length
-            dtxoff(pdt, sd->toInitializer(), 0);    // init.ptr
-        }
+        tm->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tm->vtinfo), 0);
     }
 
     void visit(TypeInfoEnumDeclaration *d)
@@ -391,8 +342,8 @@ public:
 
         if (sd->memtype)
         {
-            sd->memtype->getTypeInfo(NULL);
-            dtxoff(pdt, sd->memtype->vtinfo->toSymbol(), 0);        // TypeInfo for enum members
+            sd->memtype->genTypeInfo(NULL);
+            dtxoff(pdt, toSymbol(sd->memtype->vtinfo), 0);        // TypeInfo for enum members
         }
         else
             dtsize_t(pdt, 0);
@@ -428,8 +379,8 @@ public:
 
         TypePointer *tc = (TypePointer *)d->tinfo;
 
-        tc->next->getTypeInfo(NULL);
-        dtxoff(pdt, tc->next->vtinfo->toSymbol(), 0); // TypeInfo for type being pointed to
+        tc->next->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tc->next->vtinfo), 0); // TypeInfo for type being pointed to
     }
 
     void visit(TypeInfoArrayDeclaration *d)
@@ -444,8 +395,8 @@ public:
 
         TypeDArray *tc = (TypeDArray *)d->tinfo;
 
-        tc->next->getTypeInfo(NULL);
-        dtxoff(pdt, tc->next->vtinfo->toSymbol(), 0); // TypeInfo for array of type
+        tc->next->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tc->next->vtinfo), 0); // TypeInfo for array of type
     }
 
     void visit(TypeInfoStaticArrayDeclaration *d)
@@ -460,8 +411,8 @@ public:
 
         TypeSArray *tc = (TypeSArray *)d->tinfo;
 
-        tc->next->getTypeInfo(NULL);
-        dtxoff(pdt, tc->next->vtinfo->toSymbol(), 0); // TypeInfo for array of type
+        tc->next->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tc->next->vtinfo), 0); // TypeInfo for array of type
 
         dtsize_t(pdt, tc->dim->toInteger());         // length
     }
@@ -478,14 +429,14 @@ public:
 
         TypeVector *tc = (TypeVector *)d->tinfo;
 
-        tc->basetype->getTypeInfo(NULL);
-        dtxoff(pdt, tc->basetype->vtinfo->toSymbol(), 0); // TypeInfo for equivalent static array
+        tc->basetype->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tc->basetype->vtinfo), 0); // TypeInfo for equivalent static array
     }
 
     void visit(TypeInfoAssociativeArrayDeclaration *d)
     {
         //printf("TypeInfoAssociativeArrayDeclaration::toDt()\n");
-        verifyStructSize(Type::typeinfoassociativearray, 5 * Target::ptrsize);
+        verifyStructSize(Type::typeinfoassociativearray, 4 * Target::ptrsize);
 
         dtxoff(pdt, Type::typeinfoassociativearray->toVtblSymbol(), 0); // vtbl for TypeInfo_AssociativeArray
         dtsize_t(pdt, 0);                        // monitor
@@ -494,14 +445,11 @@ public:
 
         TypeAArray *tc = (TypeAArray *)d->tinfo;
 
-        tc->next->getTypeInfo(NULL);
-        dtxoff(pdt, tc->next->vtinfo->toSymbol(), 0); // TypeInfo for array of type
+        tc->next->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tc->next->vtinfo), 0); // TypeInfo for array of type
 
-        tc->index->getTypeInfo(NULL);
-        dtxoff(pdt, tc->index->vtinfo->toSymbol(), 0); // TypeInfo for array of type
-
-        tc->getImpl()->type->getTypeInfo(NULL);
-        dtxoff(pdt, tc->getImpl()->type->vtinfo->toSymbol(), 0);    // impl
+        tc->index->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tc->index->vtinfo), 0); // TypeInfo for array of type
     }
 
     void visit(TypeInfoFunctionDeclaration *d)
@@ -516,8 +464,8 @@ public:
 
         TypeFunction *tc = (TypeFunction *)d->tinfo;
 
-        tc->next->getTypeInfo(NULL);
-        dtxoff(pdt, tc->next->vtinfo->toSymbol(), 0); // TypeInfo for function return value
+        tc->next->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tc->next->vtinfo), 0); // TypeInfo for function return value
 
         const char *name = d->tinfo->deco;
         assert(name);
@@ -538,8 +486,8 @@ public:
 
         TypeDelegate *tc = (TypeDelegate *)d->tinfo;
 
-        tc->next->nextOf()->getTypeInfo(NULL);
-        dtxoff(pdt, tc->next->nextOf()->vtinfo->toSymbol(), 0); // TypeInfo for delegate return value
+        tc->next->nextOf()->genTypeInfo(NULL);
+        dtxoff(pdt, toSymbol(tc->next->nextOf()->vtinfo), 0); // TypeInfo for delegate return value
 
         const char *name = d->tinfo->deco;
         assert(name);
@@ -597,9 +545,9 @@ public:
         else
             dtxoff(pdt, sd->toInitializer(), 0);    // init.ptr
 
-        if (FuncDeclaration *fd = search_toHash(sd))
+        if (FuncDeclaration *fd = sd->xhash)
         {
-            dtxoff(pdt, fd->toSymbol(), 0);
+            dtxoff(pdt, toSymbol(fd), 0);
             TypeFunction *tf = (TypeFunction *)fd->type;
             assert(tf->ty == Tfunction);
             /* I'm a little unsure this is the right way to do it. Perhaps a better
@@ -614,18 +562,18 @@ public:
             dtsize_t(pdt, 0);
 
         if (sd->xeq)
-            dtxoff(pdt, sd->xeq->toSymbol(), 0);
+            dtxoff(pdt, toSymbol(sd->xeq), 0);
         else
             dtsize_t(pdt, 0);
 
         if (sd->xcmp)
-            dtxoff(pdt, sd->xcmp->toSymbol(), 0);
+            dtxoff(pdt, toSymbol(sd->xcmp), 0);
         else
             dtsize_t(pdt, 0);
 
         if (FuncDeclaration *fd = search_toString(sd))
         {
-            dtxoff(pdt, fd->toSymbol(), 0);
+            dtxoff(pdt, toSymbol(fd), 0);
         }
         else
             dtsize_t(pdt, 0);
@@ -639,7 +587,7 @@ public:
         // xgetMembers
         FuncDeclaration *sgetmembers = sd->findGetMembers();
         if (sgetmembers)
-            dtxoff(pdt, sgetmembers->toSymbol(), 0);
+            dtxoff(pdt, toSymbol(sgetmembers), 0);
         else
             dtsize_t(pdt, 0);                        // xgetMembers
     #endif
@@ -647,14 +595,14 @@ public:
         // xdtor
         FuncDeclaration *sdtor = sd->dtor;
         if (sdtor)
-            dtxoff(pdt, sdtor->toSymbol(), 0);
+            dtxoff(pdt, toSymbol(sdtor), 0);
         else
             dtsize_t(pdt, 0);                        // xdtor
 
         // xpostblit
         FuncDeclaration *spostblit = sd->postblit;
         if (spostblit && !(spostblit->storage_class & STCdisable))
-            dtxoff(pdt, spostblit->toSymbol(), 0);
+            dtxoff(pdt, toSymbol(spostblit), 0);
         else
             dtsize_t(pdt, 0);                        // xpostblit
 
@@ -669,8 +617,8 @@ public:
                 // m_argi
                 if (t)
                 {
-                    t->getTypeInfo(NULL);
-                    dtxoff(pdt, t->vtinfo->toSymbol(), 0);
+                    t->genTypeInfo(NULL);
+                    dtxoff(pdt, toSymbol(t->vtinfo), 0);
                 }
                 else
                     dtsize_t(pdt, 0);
@@ -681,7 +629,7 @@ public:
 
         // xgetRTInfo
         if (sd->getRTInfo)
-            sd->getRTInfo->toDt(pdt);
+            Expression_toDt(sd->getRTInfo, pdt);
         else if (m_flags & StructFlags::hasPointers)
             dtsize_t(pdt, 1);
         else
@@ -709,7 +657,7 @@ public:
 
         if (!tc->sym->vclassinfo)
             tc->sym->vclassinfo = TypeInfoClassDeclaration::create(tc);
-        s = tc->sym->vclassinfo->toSymbol();
+        s = toSymbol(tc->sym->vclassinfo);
         dtxoff(pdt, s, 0);          // ClassInfo for tinfo
     }
 
@@ -733,7 +681,7 @@ public:
         {   Parameter *arg = (*tu->arguments)[i];
             Expression *e = arg->type->getTypeInfo(NULL);
             e = e->optimize(WANTvalue);
-            e->toDt(&dt);
+            Expression_toDt(e, &dt);
         }
 
         dtdtoff(pdt, dt, 0);              // elements.ptr
@@ -778,96 +726,3 @@ int TypeClass::builtinTypeInfo()
      */
     return mod ? 0 : 1;
 }
-
-/* ========================================================================= */
-
-/***************************************
- * Create a static array of TypeInfo references
- * corresponding to an array of Expression's.
- * Used to supply hidden _arguments[] value for variadic D functions.
- */
-
-Expression *createTypeInfoArray(Scope *sc, Expression *exps[], size_t dim)
-{
-#if 1
-    /*
-     * Pass a reference to the TypeInfo_Tuple corresponding to the types of the
-     * arguments. Source compatibility is maintained by computing _arguments[]
-     * at the start of the called function by offseting into the TypeInfo_Tuple
-     * reference.
-     */
-    Parameters *args = Parameters_create();
-    args->setDim(dim);
-    for (size_t i = 0; i < dim; i++)
-    {   Parameter *arg = Parameter::create(STCin, exps[i]->type, NULL, NULL);
-        (*args)[i] = arg;
-    }
-    TypeTuple *tup = TypeTuple::create(args);
-    Expression *e = tup->getTypeInfo(sc);
-    e = e->optimize(WANTvalue);
-    assert(e->op == TOKsymoff);         // should be SymOffExp
-
-    return e;
-#else
-    /* Improvements:
-     * 1) create an array literal instead,
-     * as it would eliminate the extra dereference of loading the
-     * static variable.
-     */
-
-    ArrayInitializer *ai = new ArrayInitializer(0);
-    VarDeclaration *v;
-    Type *t;
-    Expression *e;
-    OutBuffer buf;
-    Identifier *id;
-    char *name;
-
-    // Generate identifier for _arguments[]
-    buf.writestring("_arguments_");
-    for (int i = 0; i < dim; i++)
-    {   t = exps[i]->type;
-        t->toDecoBuffer(&buf);
-    }
-    buf.writeByte(0);
-    id = Lexer::idPool((char *)buf.data);
-
-    Module *m = sc->module;
-    Dsymbol *s = m->symtab->lookup(id);
-
-    if (s && s->parent == m)
-    {   // Use existing one
-        v = s->isVarDeclaration();
-        assert(v);
-    }
-    else
-    {   // Generate new one
-
-        for (int i = 0; i < dim; i++)
-        {   t = exps[i]->type;
-            e = t->getTypeInfo(sc);
-            ai->addInit(new IntegerExp(i), new ExpInitializer(Loc(), e));
-        }
-
-        t = Type::typeinfo->type->arrayOf();
-        ai->type = t;
-        v = new VarDeclaration(0, t, id, ai);
-        v->storage_class |= STCtemp;
-        m->members->push(v);
-        m->symtabInsert(v);
-        sc = sc->push();
-        sc->linkage = LINKc;
-        sc->stc = STCstatic | STCcomdat;
-        ai->semantic(sc, t);
-        v->semantic(sc);
-        v->parent = m;
-        sc = sc->pop();
-    }
-    e = VarExp::create(Loc(), v);
-    e = e->semantic(sc);
-    return e;
-#endif
-}
-
-
-

@@ -262,9 +262,9 @@ string genTempFilename(string result_path)
 
 int system(string command)
 {
-    if (!command) return std.c.process.system(null);
+    if (!command) return core.stdc.stdlib.system(null);
     const commandz = toStringz(command);
-    auto status = std.c.process.system(commandz);
+    auto status = core.stdc.stdlib.system(commandz);
     if (status == -1) return status;
     version (Windows) status <<= 8;
     return status;
@@ -322,7 +322,7 @@ string unifyNewLine(string str)
 
 string unifyDirSep(string str, string sep)
 {
-    return std.regex.replace(str, regex(`(?<=\w\w*)/(?=\w[\w/]*\.di?\b)`, "g"), sep);
+    return std.regex.replace(str, regex(`(?<=[-\w][-\w]*)/(?=[-\w][-\w/]*\.di?\b)`, "g"), sep);
 }
 unittest
 {
@@ -352,18 +352,18 @@ int main(string[] args)
     string test_extension = args[3];
 
     EnvData envData;
-    envData.all_args      = getenv("ARGS");
-    envData.results_dir   = getenv("RESULTS_DIR");
-    envData.sep           = getenv("SEP");
-    envData.dsep          = getenv("DSEP");
-    envData.obj           = getenv("OBJ");
-    envData.exe           = getenv("EXE");
-    envData.os            = getenv("OS");
-    envData.dmd           = replace(getenv("DMD"), "/", envData.sep);
+    envData.all_args      = environment.get("ARGS");
+    envData.results_dir   = environment.get("RESULTS_DIR");
+    envData.sep           = environment.get("SEP");
+    envData.dsep          = environment.get("DSEP");
+    envData.obj           = environment.get("OBJ");
+    envData.exe           = environment.get("EXE");
+    envData.os            = environment.get("OS");
+    envData.dmd           = replace(environment.get("DMD"), "/", envData.sep);
     envData.compiler      = "dmd"; //should be replaced for other compilers
-    envData.ccompiler     = getenv("CC");
-    envData.model         = getenv("MODEL");
-    envData.required_args = getenv("REQUIRED_ARGS");
+    envData.ccompiler     = environment.get("CC");
+    envData.model         = environment.get("MODEL");
+    envData.required_args = environment.get("REQUIRED_ARGS");
 
     string result_path    = envData.results_dir ~ envData.sep;
     string input_file     = input_dir ~ envData.sep ~ test_name ~ "." ~ test_extension;
@@ -392,6 +392,8 @@ int main(string[] args)
             default:      envData.ccompiler = "g++"; break;
         }
     }
+    bool msc = envData.ccompiler.toLower.endsWith("cl.exe");
+
     gatherTestParameters(testArgs, input_dir, input_file, envData);
 
     //prepare cpp extra sources
@@ -420,13 +422,13 @@ int main(string[] args)
             string command = envData.ccompiler;
             if (envData.compiler == "dmd")
             {
-                if (envData.os == "win32")
-                {
-                    command ~= " -c "~curSrc~" -o"~curObj;
-                }
-                else if (envData.os == "win64")
+                if (msc)
                 {
                     command ~= ` /c /nologo `~curSrc~` /Fo`~curObj;
+                }
+                else if (envData.os == "win32")
+                {
+                    command ~= " -c "~curSrc~" -o"~curObj;
                 }
                 else
                 {
@@ -462,7 +464,7 @@ int main(string[] args)
 
     auto f = File(output_file, "a");
 
-    foreach(i, c; combinations(testArgs.permuteArgs))
+    foreach (i, c; combinations(testArgs.permuteArgs))
     {
         string test_app_dmd = test_app_dmd_base ~ to!string(i) ~ envData.exe;
 
@@ -480,6 +482,11 @@ int main(string[] args)
                 removeIfExists(thisRunName);
             }
 
+            // can override -verrors by using REQUIRED_ARGS
+            auto reqArgs =
+                (testArgs.mode == TestMode.FAIL_COMPILE ? "-verrors=0 " : null) ~
+                testArgs.requiredArgs;
+
             string compile_output;
             if (!testArgs.compileSeparately)
             {
@@ -487,7 +494,7 @@ int main(string[] args)
                 toCleanup ~= objfile;
 
                 string command = format("%s -m%s -I%s %s %s -od%s -of%s %s%s", envData.dmd, envData.model, input_dir,
-                        testArgs.requiredArgs, c, output_dir,
+                        reqArgs, c, output_dir,
                         (testArgs.mode == TestMode.RUN ? test_app_dmd : objfile),
                         (testArgs.mode == TestMode.RUN ? "" : "-c "),
                         join(testArgs.sources, " "));
@@ -503,7 +510,7 @@ int main(string[] args)
                     toCleanup ~= newo;
 
                     string command = format("%s -m%s -I%s %s %s -od%s -c %s", envData.dmd, envData.model, input_dir,
-                        testArgs.requiredArgs, c, output_dir, filename);
+                        reqArgs, c, output_dir, filename);
                     compile_output ~= execute(fThisRun, command, testArgs.mode != TestMode.FAIL_COMPILE, result_path);
                 }
 
@@ -535,7 +542,7 @@ int main(string[] args)
             {
                 toCleanup ~= test_app_dmd;
                 version(Windows)
-                    if (envData.model == "64")
+                    if (msc)
                     {
                         toCleanup ~= test_app_dmd_base ~ to!string(i) ~ ".ilk";
                         toCleanup ~= test_app_dmd_base ~ to!string(i) ~ ".pdb";

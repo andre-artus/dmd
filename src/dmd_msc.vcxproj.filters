@@ -93,6 +93,9 @@
     <ClCompile Include="enum.c">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="errors.c">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="expression.c">
       <Filter>src</Filter>
     </ClCompile>
@@ -166,6 +169,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="mtype.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="nogc.c">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="opover.c">
@@ -414,6 +420,9 @@
     <ClCompile Include="root\async.c">
       <Filter>src\root</Filter>
     </ClCompile>
+    <ClCompile Include="root\checkedint.c">
+      <Filter>src\root</Filter>
+    </ClCompile>
     <ClCompile Include="root\dmgcmem.c">
       <Filter>src\root</Filter>
     </ClCompile>
@@ -537,6 +546,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="enum.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="errors.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="expression.h">
@@ -711,6 +723,9 @@
       <Filter>src\root</Filter>
     </ClInclude>
     <ClInclude Include="root\async.h">
+      <Filter>src\root</Filter>
+    </ClInclude>
+    <ClInclude Include="root\checkedint.h">
       <Filter>src\root</Filter>
     </ClInclude>
     <ClInclude Include="root\longdouble.h">

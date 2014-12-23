@@ -575,6 +575,7 @@ typedef targ_uns        targ_size_t;    /* size_t for the target machine */
 #define DATA    2       /* initialized data             */
 #define CDATA   3       /* constant data                */
 #define UDATA   4       /* uninitialized data           */
+#define CDATAREL 5      /* constant data with relocs    */
 #define UNKNOWN -1      /* unknown segment              */
 #define DGROUPIDX 1     /* group index of DGROUP        */
 
@@ -702,6 +703,11 @@ struct Config
                                    2:   fast inline 8087 code
                                  */
     short memmodel;             // 0:S,X,N,F, 1:M, 2:C, 3:L, 4:V
+    unsigned objfmt;            // target object format
+#define OBJ_OMF         1
+#define OBJ_MSCOFF      2
+#define OBJ_ELF         3
+#define OBJ_MACH        4
     unsigned exe;               // target operating system
 #define EX_DOSX         1       // DOSX 386 program
 #define EX_ZPM          2       // ZPM 286 program
@@ -770,9 +776,10 @@ struct Config
 #define CFG2expand      0x8000  // expanded output to list file
 #define CFG2seh         0x10000 // use Win32 SEH to support any exception handling
 #define CFG2stomp       0x20000 // enable stack stomping code
+#define CFG2gms         0x40000 // optimize debug symbols for microsoft debuggers
 #define CFGX2   (CFG2warniserr | CFG2phuse | CFG2phgen | CFG2phauto | \
                  CFG2once | CFG2hdrdebug | CFG2noobj | CFG2noerrmax | \
-                 CFG2expand | CFG2nodeflib | CFG2stomp)
+                 CFG2expand | CFG2nodeflib | CFG2stomp | CFG2gms)
     unsigned flags3;
 #define CFG3ju          1       // char == unsigned char
 #define CFG3eh          4       // generate exception handling stuff

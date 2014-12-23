@@ -1,4 +1,13 @@
 
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/gluestub.c
+ */
+
 #include "module.h"
 #include "declaration.h"
 #include "aggregate.h"
@@ -9,22 +18,11 @@
 #include "init.h"
 #include "ctfe.h"
 #include "lib.h"
+#include "nspace.h"
 
 // tocsym
 
-Symbol *SymbolDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
 Symbol *Dsymbol::toSymbolX(const char *prefix, int sclass, TYPE *t, const char *suffix)
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *Dsymbol::toSymbol()
 {
     assert(0);
     return NULL;
@@ -42,61 +40,7 @@ Symbol *Dsymbol::toImport(Symbol *sym)
     return NULL;
 }
 
-Symbol *VarDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *ClassInfoDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *TypeInfoDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *TypeInfoClassDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *FuncAliasDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *FuncDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
 Symbol *FuncDeclaration::toThunkSymbol(int offset)
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *ClassDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *InterfaceDeclaration::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *Module::toSymbol()
 {
     assert(0);
     return NULL;
@@ -109,11 +53,6 @@ Symbol *ClassDeclaration::toVtblSymbol()
 }
 
 Symbol *AggregateDeclaration::toInitializer()
-{
-    return NULL;
-}
-
-Symbol *TypedefDeclaration::toInitializer()
 {
     return NULL;
 }
@@ -156,589 +95,6 @@ Symbol* ClassReferenceExp::toSymbol()
     return NULL;
 }
 
-// todt
-
-dt_t **Expression::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **CastExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **AddrExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **IntegerExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **RealExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **ComplexExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **NullExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **StringExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **ArrayLiteralExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **StructLiteralExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **SymOffExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **VarExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **FuncExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **VectorExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-void ClassDeclaration::toDt(dt_t **pdt)
-{
-    assert(0);
-}
-
-void ClassDeclaration::toDt2(dt_t **pdt, ClassDeclaration *cd)
-{
-    assert(0);
-}
-
-void StructDeclaration::toDt(dt_t **pdt)
-{
-    assert(0);
-}
-
-dt_t **ClassReferenceExp::toDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **ClassReferenceExp::toDtI(dt_t **pdt, int off)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **ClassReferenceExp::toInstanceDt(dt_t **pdt)
-{
-    assert(0);
-    return NULL;
-}
-
-dt_t **ClassReferenceExp::toDt2(dt_t **pdt, ClassDeclaration *cd, Dts *dts)
-{
-    assert(0);
-    return NULL;
-}
-
-// e2ir
-
-elem *Expression::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *Expression::toElemDtor(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *SymbolExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *FuncExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *Dsymbol_toElem(Dsymbol *s, IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *DeclarationExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ThisExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *IntegerExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *RealExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ComplexExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *NullExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *StringExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *NewExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *NegExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ComExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *NotExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *HaltExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AssertExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *PostExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *BinExp::toElemBin(IRState *irs,int op)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AddExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *MinExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *CatExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *MulExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *DivExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ModExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *CmpExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *EqualExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *IdentityExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *InExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *RemoveExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AddAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *MinAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *CatAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *DivAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ModAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *MulAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ShlAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ShrAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *UshrAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AndAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *OrAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *XorAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *PowAssignExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AndAndExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *OrOrExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *XorExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *PowExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AndExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *OrExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ShlExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ShrExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *UshrExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *CommaExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *CondExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *TypeExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ScopeExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *DotVarExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *DelegateExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *DotTypeExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *CallExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AddrExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *PtrExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *BoolExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *DeleteExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *VectorExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *CastExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ArrayLengthExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *SliceExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *IndexExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *TupleExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ArrayLiteralExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *AssocArrayLiteralExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *StructLiteralExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
-elem *ClassReferenceExp::toElem(IRState *irs)
-{
-    assert(0);
-    return NULL;
-}
-
 // toobj
 
 void Module::genmoduleinfo()
@@ -746,12 +102,12 @@ void Module::genmoduleinfo()
     assert(0);
 }
 
-void Dsymbol::toObjFile(int multiobj)
+void Dsymbol::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void ClassDeclaration::toObjFile(int multiobj)
+void ClassDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
@@ -762,62 +118,57 @@ unsigned ClassDeclaration::baseVtblOffset(BaseClass *bc)
     return 0;
 }
 
-void InterfaceDeclaration::toObjFile(int multiobj)
+void InterfaceDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void StructDeclaration::toObjFile(int multiobj)
+void StructDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void VarDeclaration::toObjFile(int multiobj)
+void VarDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void TypedefDeclaration::toObjFile(int multiobj)
+void EnumDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void EnumDeclaration::toObjFile(int multiobj)
+void TypeInfoDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void TypeInfoDeclaration::toObjFile(int multiobj)
+void AttribDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void AttribDeclaration::toObjFile(int multiobj)
+void PragmaDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void PragmaDeclaration::toObjFile(int multiobj)
+void TemplateInstance::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void TemplateInstance::toObjFile(int multiobj)
+void TemplateMixin::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void TemplateMixin::toObjFile(int multiobj)
+void Nspace::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
 // glue
-
-void obj_append(Dsymbol *s)
-{
-    assert(0);
-}
 
 void obj_write_deferred(Library *library)
 {
@@ -831,54 +182,18 @@ void obj_end(Library *library, File *objfile)
 {
 }
 
-bool obj_includelib(const char *name)
+void Module::genobjfile(bool multiobj)
 {
-    assert(0);
-    return false;
 }
 
-void obj_startaddress(Symbol *s)
+void FuncDeclaration::toObjFile(bool multiobj)
 {
     assert(0);
 }
 
-void Module::genobjfile(int multiobj)
-{
-}
-
-void FuncDeclaration::toObjFile(int multiobj)
+void Module::genhelpers(bool iscomdat)
 {
     assert(0);
-}
-
-unsigned Type::totym()
-{
-    assert(0);
-    return 0;
-}
-
-unsigned TypeFunction::totym()
-{
-    assert(0);
-    return 0;
-}
-
-Symbol *Type::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-Symbol *TypeClass::toSymbol()
-{
-    assert(0);
-    return NULL;
-}
-
-elem *Module::toEfilename()
-{
-    assert(0);
-    return NULL;
 }
 
 // msc
@@ -903,18 +218,12 @@ Expression *Type::getTypeInfo(Scope *sc)
 {
     Declaration *ti = new TypeInfoDeclaration(this, 1);
     Expression *e = new VarExp(Loc(), ti);
-    e = e->addressOf(sc);
+    e = e->addressOf();
     e->type = ti->type;
     return e;
 }
 
 TypeInfoDeclaration *Type::getTypeInfoDeclaration()
-{
-    assert(0);
-    return NULL;
-}
-
-TypeInfoDeclaration *TypeTypedef::getTypeInfoDeclaration()
 {
     assert(0);
     return NULL;
@@ -1010,92 +319,6 @@ int TypeClass::builtinTypeInfo()
     return 0;
 }
 
-Expression *createTypeInfoArray(Scope *sc, Expression *exps[], size_t dim)
-{
-    /*
-     * Pass a reference to the TypeInfo_Tuple corresponding to the types of the
-     * arguments. Source compatibility is maintained by computing _arguments[]
-     * at the start of the called function by offseting into the TypeInfo_Tuple
-     * reference.
-     */
-    Parameters *args = new Parameters;
-    args->setDim(dim);
-    for (size_t i = 0; i < dim; i++)
-    {   Parameter *arg = new Parameter(STCin, exps[i]->type, NULL, NULL);
-        (*args)[i] = arg;
-    }
-    TypeTuple *tup = new TypeTuple(args);
-    Expression *e = tup->getTypeInfo(sc);
-    e = e->optimize(WANTvalue);
-    assert(e->op == TOKsymoff);         // should be SymOffExp
-
-    return e;
-}
-
-// tocvdebug
-
-void TypedefDeclaration::toDebug()
-{
-    assert(0);
-}
-
-void EnumDeclaration::toDebug()
-{
-    assert(0);
-}
-
-void StructDeclaration::toDebug()
-{
-    assert(0);
-}
-
-void ClassDeclaration::toDebug()
-{
-    assert(0);
-}
-
-int Dsymbol::cvMember(unsigned char *p)
-{
-    assert(0);
-    return 0;
-}
-
-int TypedefDeclaration::cvMember(unsigned char *p)
-{
-    assert(0);
-    return 0;
-}
-
-int EnumDeclaration::cvMember(unsigned char *p)
-{
-    assert(0);
-    return 0;
-}
-
-int FuncDeclaration::cvMember(unsigned char *p)
-{
-    assert(0);
-    return 0;
-}
-
-int VarDeclaration::cvMember(unsigned char *p)
-{
-    assert(0);
-    return 0;
-}
-
-// toir
-
-void FuncDeclaration::buildClosure(IRState *irs)
-{
-    assert(0);
-}
-
-RET TypeFunction::retStyle()
-{
-    return RETregs;
-}
-
 // lib
 
 Library *LibMSCoff_factory()
@@ -1122,16 +345,15 @@ Library *LibMach_factory()
     return NULL;
 }
 
-Statement *AsmStatement::semantic(Scope *)
+Statement* asmSemantic(AsmStatement *s, Scope *sc)
 {
     assert(0);
     return NULL;
 }
 
-int binary(const char *p, const char **tab, int n)
+// toir
+
+RET retStyle(TypeFunction *tf)
 {
-    for (int i = 0; i < n; ++i)
-        if (!strcmp(p, tab[i]))
-            return i;
-    return -1;
+    return RETregs;
 }

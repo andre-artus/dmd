@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/cond.c
+ */
 
 #include <stdio.h>
 #include <assert.h>
@@ -105,7 +106,7 @@ void printDepsConditional(Scope *sc, DVCondition* condition, const char* depType
 }
 
 
-int DebugCondition::include(Scope *sc, ScopeDsymbol *s)
+int DebugCondition::include(Scope *sc, ScopeDsymbol *sds)
 {
     //printf("DebugCondition::include() level = %d, debuglevel = %d\n", level, global.params.debuglevel);
     if (inc == 0)
@@ -133,14 +134,6 @@ int DebugCondition::include(Scope *sc, ScopeDsymbol *s)
             printDepsConditional(sc, this, "depsDebug ");
     }
     return (inc == 1);
-}
-
-void DebugCondition::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
-{
-    if (ident)
-        buf->printf("debug (%s)", ident->toChars());
-    else
-        buf->printf("debug (%u)", level);
 }
 
 /* ============================================================ */
@@ -202,6 +195,8 @@ bool VersionCondition::isPredefined(const char *ident)
         "MIPS_EABI",
         "MIPS_SoftFloat",
         "MIPS_HardFloat",
+        "NVPTX",
+        "NVPTX64",
         "SPARC",
         "SPARC_V8Plus",
         "SPARC_SoftFloat",
@@ -218,6 +213,11 @@ bool VersionCondition::isPredefined(const char *ident)
         "Alpha_HardFloat",
         "LittleEndian",
         "BigEndian",
+        "ELFv1",
+        "ELFv2",
+        "CRuntime_Digitalmars",
+        "CRuntime_Glibc",
+        "CRuntime_Microsoft",
         "D_Coverage",
         "D_Ddoc",
         "D_InlineAsm_X86",
@@ -267,7 +267,7 @@ VersionCondition::VersionCondition(Module *mod, unsigned level, Identifier *iden
 {
 }
 
-int VersionCondition::include(Scope *sc, ScopeDsymbol *s)
+int VersionCondition::include(Scope *sc, ScopeDsymbol *sds)
 {
     //printf("VersionCondition::include() level = %d, versionlevel = %d\n", level, global.params.versionlevel);
     //if (ident) printf("\tident = '%s'\n", ident->toChars());
@@ -299,15 +299,6 @@ int VersionCondition::include(Scope *sc, ScopeDsymbol *s)
     return (inc == 1);
 }
 
-void VersionCondition::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
-{
-    if (ident)
-        buf->printf("version (%s)", ident->toChars());
-    else
-        buf->printf("version (%u)", level);
-}
-
-
 /**************************** StaticIfCondition *******************************/
 
 StaticIfCondition::StaticIfCondition(Loc loc, Expression *exp)
@@ -322,13 +313,13 @@ Condition *StaticIfCondition::syntaxCopy()
     return new StaticIfCondition(loc, exp->syntaxCopy());
 }
 
-int StaticIfCondition::include(Scope *sc, ScopeDsymbol *s)
+int StaticIfCondition::include(Scope *sc, ScopeDsymbol *sds)
 {
 #if 0
-    printf("StaticIfCondition::include(sc = %p, s = %p) this=%p inc = %d\n", sc, s, this, inc);
-    if (s)
+    printf("StaticIfCondition::include(sc = %p, sds = %p) this=%p inc = %d\n", sc, sds, this, inc);
+    if (sds)
     {
-        printf("\ts = '%s', kind = %s\n", s->toChars(), s->kind());
+        printf("\ts = '%s', kind = %s\n", sds->toChars(), sds->kind());
     }
 #endif
     if (inc == 0)
@@ -349,8 +340,9 @@ int StaticIfCondition::include(Scope *sc, ScopeDsymbol *s)
 
         ++nest;
         sc = sc->push(sc->scopesym);
-        sc->sd = s;                     // s gets any addMember()
-        sc->flags |= SCOPEstaticif;
+        sc->sds = sds;                  // sds gets any addMember()
+        //sc->speculative = true;       // TODO: static if (is(T U)) { /* U is available */ }
+        sc->flags |= SCOPEcondition;
 
         sc = sc->startCTFE();
         Expression *e = exp->semantic(sc);
@@ -387,11 +379,4 @@ Lerror:
     if (!global.gag)
         inc = 2;                // so we don't see the error message again
     return 0;
-}
-
-void StaticIfCondition::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
-{
-    buf->writestring("static if (");
-    exp->toCBuffer(buf, hgs);
-    buf->writeByte(')');
 }

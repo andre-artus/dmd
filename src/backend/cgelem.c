@@ -27,7 +27,7 @@
 static char __file__[] = __FILE__;      /* for tassert.h                */
 #include        "tassert.h"
 
-extern void error(const char *filename, unsigned linnum, const char *format, ...);
+extern void error(const char *filename, unsigned linnum, unsigned charnum, const char *format, ...);
 
 STATIC elem * optelem(elem *,goal_t);
 STATIC elem * elarray(elem *e);
@@ -1445,12 +1445,14 @@ STATIC elem * elbitwise(elem *e, goal_t goal)
          *  b btst a
          */
         if (e1->Eoper == OPshl &&
-            ELCONST(e1->E1,1))
+            ELCONST(e1->E1,1) &&
+            tysize(e->E1->Ety) <= REGSIZE)
         {
             e->Eoper = OPbtst;
-            e->Ety = OPbool;
+            e->Ety = TYbool;
             e->E1 = e2;
             e->E2 = e1->E2;
+            e->E2->Ety = e->E1->Ety;
             e1->E2 = NULL;
             el_free(e1);
             return optelem(e, goal);
@@ -1918,11 +1920,10 @@ STATIC elem * elcond(elem *e, goal_t goal)
         {
             if (OPTIMIZER)
             {
-            elem *ec1,*ec2;
             tym_t ty = e->Ety;
+            elem *ec1 = e->E2->E1;
+            elem *ec2 = e->E2->E2;
 
-            ec1 = e->E2->E1;
-            ec2 = e->E2->E2;
             if (tyintegral(ty) && ec1->Eoper == OPconst && ec2->Eoper == OPconst)
             {   targ_llong i1,i2;
                 targ_llong b;
@@ -2010,7 +2011,7 @@ STATIC elem * elcond(elem *e, goal_t goal)
 
             // Try to detect absolute value expression
             // (a < 0) -a : a
-            if ((e1->Eoper == OPlt || e1->Eoper == OPle) &&
+            else if ((e1->Eoper == OPlt || e1->Eoper == OPle) &&
                 e1->E2->Eoper == OPconst &&
                 !boolres(e1->E2) &&
                 !tyuns(e1->E1->Ety) &&
@@ -2041,6 +2042,40 @@ STATIC elem * elcond(elem *e, goal_t goal)
                 el_free(e);
                 e = el_una(OPabs,ty,ec1);
             }
+
+            /* Replace:
+             *    a ? noreturn : c
+             * with:
+             *    (a && noreturn), c
+             * because that means fewer noreturn cases for the data flow analysis to deal with
+             */
+            else if (el_noreturn(ec1))
+            {
+                e->Eoper = OPcomma;
+                e->E1 = e->E2;
+                e->E2 = ec2;
+                e->E1->Eoper = OPandand;
+                e->E1->Ety = TYvoid;
+                e->E1->E2 = ec1;
+                e->E1->E1 = e1;
+            }
+
+            /* Replace:
+             *    a ? b : noreturn
+             * with:
+             *    (a || noreturn), b
+             */
+            else if (el_noreturn(ec2))
+            {
+                e->Eoper = OPcomma;
+                e->E1 = e->E2;
+                e->E2 = ec1;
+                e->E1->Eoper = OPoror;
+                e->E1->Ety = TYvoid;
+                e->E1->E2 = ec2;
+                e->E1->E1 = e1;
+            }
+
             break;
             }
         }
@@ -2192,7 +2227,7 @@ STATIC elem * elremquo(elem *e, goal_t goal)
 {
 #if 0 && MARS
     if (cnst(e->E2) && !boolres(e->E2))
-        error(e->Esrcpos.Sfilename, e->Esrcpos.Slinnum, "divide by zero\n");
+        error(e->Esrcpos.Sfilename, e->Esrcpos.Slinnum, e->Esrcpos.Scharnum, "divide by zero\n");
 #endif
     return e;
 }
@@ -2229,7 +2264,7 @@ STATIC elem * eldiv(elem *e, goal_t goal)
     {
 #if 0 && MARS
       if (!boolres(e2))
-        error(e->Esrcpos.Sfilename, e->Esrcpos.Slinnum, "divide by zero\n");
+        error(e->Esrcpos.Sfilename, e->Esrcpos.Slinnum, e->Esrcpos.Scharnum, "divide by zero\n");
 #endif
       if (uns)
       { int i;
@@ -2312,13 +2347,13 @@ STATIC elem * eldiv(elem *e, goal_t goal)
  * Convert (a op b) op c to a op (b op c).
  */
 
-STATIC elem * swaplog(elem *e)
+STATIC elem * swaplog(elem *e, goal_t goal)
 {       elem *e1;
 
         e1 = e->E1;
         e->E1 = e1->E2;
         e1->E2 = e;
-        return optelem(e1,GOALvalue);
+        return optelem(e1,goal);
 }
 
 STATIC elem * eloror(elem *e, goal_t goal)
@@ -2351,7 +2386,7 @@ STATIC elem * eloror(elem *e, goal_t goal)
         }
         if (e1->Eoper == OPoror)
         {       /* convert (a||b)||c to a||(b||c). This will find more CSEs.    */
-              return swaplog(e);
+            return swaplog(e, goal);
         }
         e2 = elscancommas(e2);
         e1 = elscancommas(e1);
@@ -2688,7 +2723,7 @@ STATIC elem * elandand(elem *e, goal_t goal)
         }
         if (e1->Eoper == OPandand)
         {   /* convert (a&&b)&&c to a&&(b&&c). This will find more CSEs.        */
-            return swaplog(e);
+            return swaplog(e, goal);
         }
         e2 = elscancommas(e2);
 
@@ -3044,6 +3079,7 @@ STATIC void elstructwalk(elem *e,tym_t tym)
 elem * elstruct(elem *e, goal_t goal)
 {
     //printf("elstruct(%p)\n", e);
+    //elem_print(e);
     if (e->Eoper == OPstreq && (e->E1->Eoper == OPcomma || OTassign(e->E1->Eoper)))
         return cgel_lvalue(e);
 
@@ -3078,6 +3114,8 @@ elem * elstruct(elem *e, goal_t goal)
 
     unsigned sz = type_size(e->ET);
     //printf("\tsz = %d\n", (int)sz);
+//if (targ1) { printf("targ1\n"); type_print(targ1); }
+//if (targ2) { printf("targ2\n"); type_print(targ2); }
     switch ((int)sz)
     {
         case 1:  tym = TYchar;   goto L1;
@@ -3096,6 +3134,10 @@ elem * elstruct(elem *e, goal_t goal)
             {
                  goto L1;
             }
+            if (e->Eoper == OPstrpar && I64 && ty == TYstruct)
+            {
+                goto L1;
+            }
             tym = ~0;
             goto Ldefault;
 
@@ -3103,6 +3145,15 @@ elem * elstruct(elem *e, goal_t goal)
         case 12:
             if (tysize(TYldouble) == sz && targ1 && !targ2 && tybasic(targ1->Tty) == TYldouble)
             {   tym = TYldouble;
+                goto L1;
+            }
+        case 9:
+        case 11:
+        case 13:
+        case 14:
+        case 15:
+            if (e->Eoper == OPstrpar && I64 && ty == TYstruct && config.exe != EX_WIN64)
+            {
                 goto L1;
             }
             goto Ldefault;
@@ -4931,18 +4982,43 @@ beg:
             case OPcond:
                 if (!goal)
                 {   // Transform x?y:z into x&&y or x||z
-                    if (!el_sideeffect(e->E2->E1))
+                    elem *e2 = e->E2;
+                    if (!el_sideeffect(e2->E1))
                     {   e->Eoper = OPoror;
-                        e->E2 = el_selecte2(e->E2);
+                        e->E2 = el_selecte2(e2);
                         e->Ety = TYint;
                         goto beg;
                     }
-                    else if (!el_sideeffect(e->E2->E2))
+                    else if (!el_sideeffect(e2->E2))
                     {   e->Eoper = OPandand;
-                        e->E2 = el_selecte1(e->E2);
+                        e->E2 = el_selecte1(e2);
                         e->Ety = TYint;
                         goto beg;
                     }
+                    assert(e2->Eoper == OPcolon || e2->Eoper == OPcolon2);
+                    elem *e21 = e2->E1 = optelem(e2->E1, goal);
+                    elem *e22 = e2->E2 = optelem(e2->E2, goal);
+                    if (!e21)
+                    {
+                        if (!e22)
+                        {
+                            e = el_selecte1(e);
+                            goto beg;
+                        }
+                        // Rewrite (e1 ? null : e22) as (e1 || e22)
+                        e->Eoper = OPoror;
+                        e->E2 = el_selecte2(e2);
+                        goto beg;
+                    }
+                    if (!e22)
+                    {
+                        // Rewrite (e1 ? e21 : null) as (e1 && e21)
+                        e->Eoper = OPandand;
+                        e->E2 = el_selecte1(e2);
+                        goto beg;
+                    }
+                    if (!rightgoal)
+                        rightgoal = GOALvalue;
                 }
                 goto Llog;
 
@@ -5213,7 +5289,7 @@ beg:
   else /* unary operator */
   {
         assert(!e->E2 || op == OPinfo || op == OParraylength || op == OPddtor);
-        if (!goal && !OTsideff(op))
+        if (!goal && !OTsideff(op) && !(e->Ety & mTYvolatile))
         {
             tym_t tym = e->E1->Ety;
 
@@ -5293,8 +5369,7 @@ elem *doptelem(elem *e, goal_t goal)
 
 void postoptelem(elem *e)
 {
-    int linnum = 0;
-    const char *filename = NULL;
+    Srcpos pos = {0};
 
     elem_debug(e);
     while (1)
@@ -5304,10 +5379,8 @@ void postoptelem(elem *e)
             /* This is necessary as the optimizer tends to lose this information
              */
 #if MARS
-            if (e->Esrcpos.Slinnum > linnum)
-            {   linnum = e->Esrcpos.Slinnum;
-                filename = e->Esrcpos.Sfilename;
-            }
+            if (e->Esrcpos.Slinnum > pos.Slinnum)
+                pos = e->Esrcpos;
 #endif
             if (e->Eoper == OPind)
             {
@@ -5315,7 +5388,7 @@ void postoptelem(elem *e)
                 if (e->E1->Eoper == OPconst &&
                     el_tolong(e->E1) >= 0 && el_tolong(e->E1) < 4096)
                 {
-                    error(filename, linnum, "null dereference in function %s", funcsym_p->Sident);
+                    error(pos.Sfilename, pos.Slinnum, pos.Scharnum, "null dereference in function %s", funcsym_p->Sident);
                     e->E1->EV.Vlong = 4096;     // suppress redundant messages
                 }
 #endif
@@ -5327,10 +5400,8 @@ void postoptelem(elem *e)
 #if MARS
             /* This is necessary as the optimizer tends to lose this information
              */
-            if (e->Esrcpos.Slinnum > linnum)
-            {   linnum = e->Esrcpos.Slinnum;
-                filename = e->Esrcpos.Sfilename;
-            }
+            if (e->Esrcpos.Slinnum > pos.Slinnum)
+                pos = e->Esrcpos;
 #endif
             if (e->Eoper == OPparam)
             {

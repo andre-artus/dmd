@@ -1,7 +1,7 @@
 
 // Test operator overloading
 
-import std.c.stdio;
+import core.stdc.stdio;
 
 /**************************************/
 
@@ -1018,6 +1018,54 @@ void test8522()
     assert(mp == cp);
     assert(cp == mp);   // doesn't work
     assert(cp == cp);   // doesn't work
+}
+
+/**************************************/
+// 12778
+
+struct Vec12778X
+{
+    Vec12778X opBinary(string op)(Vec12778X b) const
+    if (op == "+")
+    {
+        mixin("return Vec12778X(this.x " ~ op ~ " b.x, this.y " ~ op ~ " b.y);");
+    }
+    alias opBinaryRight = opBinary;
+
+    float x = 0, y = 0;
+}
+
+struct Vec12778Y
+{
+    Vec12778Y opAdd()(Vec12778Y b) const
+    {
+        enum op = "+";
+        mixin("return Vec12778Y(this.x " ~ op ~ " b.x, this.y " ~ op ~ " b.y);");
+    }
+    alias opAdd_r = opAdd;
+
+    float x = 0, y = 0;
+}
+
+void test12778()
+{
+    struct S
+    {
+        void test1()
+        {
+            Vec12778X vx = vx1 + vx2;   // ok
+            Vec12778Y vy = vy1 + vy2;   // ok
+        }
+
+        void test2() const
+        {
+            Vec12778X vx = vx1 + vx2;   // ok <- error
+            Vec12778Y vy = vy1 + vy2;   // ok <- error
+        }
+
+        Vec12778X vx1, vx2;
+        Vec12778Y vy1, vy2;
+    }
 }
 
 /**************************************/

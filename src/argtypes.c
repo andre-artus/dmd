@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 2010-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 2010-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/argtypes.c
+ */
 
 #include <stdio.h>
 #include <assert.h>
@@ -325,14 +326,33 @@ TypeTuple *toArgTypes(Type *t)
                 case 2:
                     t1 = Type::tint16;
                     break;
+                case 3:
+                    if (!global.params.is64bit)
+                        goto Lmemory;
                 case 4:
                     t1 = Type::tint32;
                     break;
+                case 5:
+                case 6:
+                case 7:
+                    if (!global.params.is64bit)
+                        goto Lmemory;
                 case 8:
                     t1 = Type::tint64;
                     break;
                 case 16:
                     t1 = NULL;                   // could be a TypeVector
+                    break;
+                case 9:
+                case 10:
+                case 11:
+                case 12:
+                case 13:
+                case 14:
+                case 15:
+                    if (!global.params.is64bit)
+                        goto Lmemory;
+                    t1 = NULL;
                     break;
                 default:
                     goto Lmemory;
@@ -437,7 +457,7 @@ TypeTuple *toArgTypes(Type *t)
         #endif
             }
 
-            //printf("\ttoArgTypes() %s => [%s,%s]\n", toChars(), t1 ? t1->toChars() : "", t2 ? t2->toChars() : "");
+            //printf("\ttoArgTypes() %s => [%s,%s]\n", t->toChars(), t1 ? t1->toChars() : "", t2 ? t2->toChars() : "");
 
             if (t1)
             {
@@ -454,11 +474,6 @@ TypeTuple *toArgTypes(Type *t)
         void visit(TypeEnum *t)
         {
             t->toBasetype()->accept(this);
-        }
-
-        void visit(TypeTypedef *t)
-        {
-            t->sym->basetype->accept(this);
         }
 
         void visit(TypeClass *)

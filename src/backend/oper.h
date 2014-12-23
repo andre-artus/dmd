@@ -77,6 +77,7 @@ enum OPER
         OProl,                  // rotate left
         OPror,                  // rotate right
         OPbtst,                 // bit test
+        OPpopcnt,               // count of number of bits set to 1
 
         OPstreq,                /* structure assignment         */
 
@@ -215,8 +216,8 @@ enum OPER
         OPnullptr,              // null pointer
         OPasm,                  /* in-line assembly code        */
         OPinfo,                 // attach info (used to attach ctor/dtor
-        OPhalt,                 // insert HLT instruction
                                 // info for exception handling)
+        OPhalt,                 // insert HLT instruction
         OPctor,
         OPdtor,
         OPmark,

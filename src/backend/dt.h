@@ -3,7 +3,7 @@
 #ifndef DT_H
 #define DT_H    1
 
-struct dt;
+struct dt_t;
 struct Symbol;
 typedef unsigned        tym_t;          // data type big enough for type masks
 
@@ -27,6 +27,7 @@ void init_common(Symbol *);
 unsigned dt_size(const dt_t *dtstart);
 dt_t **dtend(dt_t** pdt);
 bool dtallzeros(const dt_t *dt);
+bool dtpointers(const dt_t *dt);
 void dt2common(dt_t **pdt);
 
 #endif /* DT_H */

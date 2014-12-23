@@ -42,6 +42,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
+				Optimization="0"
 				AdditionalIncludeDirectories=".\root;.\tk;.\backend;.;vcbuild"
 				PreprocessorDefinitions="DEBUG,_DEBUG;TARGET_WINDOS=1"
 				RuntimeLibrary="1"
@@ -115,6 +116,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalOptions="/TP"
+				Optimization="0"
 				AdditionalIncludeDirectories=".\root;.\tk;.\backend;.;vcbuild"
 				PreprocessorDefinitions="DEBUG,_DEBUG;TARGET_WINDOS=1"
 				RuntimeLibrary="1"
@@ -392,6 +394,14 @@
 				>
 			</File>
 			<File
+				RelativePath=".\errors.c"
+				>
+			</File>
+			<File
+				RelativePath=".\errors.h"
+				>
+			</File>
+			<File
 				RelativePath=".\complex_t.h"
 				>
 			</File>
@@ -617,6 +627,18 @@
 			</File>
 			<File
 				RelativePath=".\mtype.h"
+				>
+			</File>
+			<File
+				RelativePath=".\nogc.c"
+				>
+			</File>
+			<File
+				RelativePath=".\nspace.c"
+				>
+			</File>
+			<File
+				RelativePath=".\nspace.h"
 				>
 			</File>
 			<File
@@ -1348,6 +1370,14 @@
 				</File>
 				<File
 					RelativePath=".\root\async.h"
+					>
+				</File>
+				<File
+					RelativePath=".\root\checkedint.c"
+					>
+				</File>
+				<File
+					RelativePath=".\root\checkedint.h"
 					>
 				</File>
 				<File

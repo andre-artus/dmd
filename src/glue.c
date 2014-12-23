@@ -1,9 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/glue.c
+ */
 
 #include <stdio.h>
 #include <stddef.h>
@@ -36,14 +40,13 @@
 #include "outbuf.h"
 #include "irstate.h"
 
-void slist_add(Symbol *s);
-void slist_reset();
 void clearStringTab();
 
 elem *addressElem(elem *e, Type *t, bool alwaysCopy = false);
 void Statement_toIR(Statement *s, IRState *irs);
-
-#define STATICCTOR      0
+elem *toEfilename(Module *m);
+Symbol *toSymbol(Dsymbol *s);
+void buildClosure(FuncDeclaration *fd, IRState *irs);
 
 typedef Array<symbol *> symbols;
 Dsymbols *Dsymbols_create();
@@ -83,12 +86,14 @@ void obj_append(Dsymbol *s)
 void obj_write_deferred(Library *library)
 {
     for (size_t i = 0; i < obj_symbols_towrite.dim; i++)
-    {   Dsymbol *s = obj_symbols_towrite[i];
+    {
+        Dsymbol *s = obj_symbols_towrite[i];
         Module *m = s->getModule();
 
         char *mname;
         if (m)
-        {   mname = m->srcfile->toChars();
+        {
+            mname = m->srcfile->toChars();
             lastmname = mname;
         }
         else
@@ -110,7 +115,7 @@ void obj_write_deferred(Library *library)
         idbuf.printf("%s.%d", m ? m->ident->toChars() : mname, count);
         char *idstr = idbuf.peekString();
 
-        if(!m)
+        if (!m)
         {
             // it doesn't make sense to make up a module if we don't know where to put the symbol
             //  so output it into it's own object file without ModuleInfo
@@ -187,7 +192,7 @@ symbol *callFuncsAndGates(Module *m, symbols *sctors, StaticDtorDeclarations *ec
             for (size_t i = 0; i < ectorgates->dim; i++)
             {   StaticDtorDeclaration *f = (*ectorgates)[i];
 
-                Symbol *s = f->vgate->toSymbol();
+                Symbol *s = toSymbol(f->vgate);
                 elem *e = el_var(s);
                 e = el_bin(OPaddass, TYint, e, el_long(TYint, 1));
                 ector = el_combine(ector, e);
@@ -230,8 +235,8 @@ void obj_start(char *srcfile)
 #if TARGET_WINDOS
     // Produce Ms COFF files for 64 bit code, OMF for 32 bit code
     assert(objbuf.size() == 0);
-    objmod = global.params.is64bit == 1 ? MsCoffObj::init(&objbuf, srcfile, NULL)
-                                        :       Obj::init(&objbuf, srcfile, NULL);
+    objmod = global.params.mscoff ? MsCoffObj::init(&objbuf, srcfile, NULL)
+                                  :       Obj::init(&objbuf, srcfile, NULL);
 #else
     objmod = Obj::init(&objbuf, srcfile, NULL);
 #endif
@@ -288,7 +293,7 @@ void obj_startaddress(Symbol *s)
  * Generate .obj file for Module.
  */
 
-void Module::genobjfile(int multiobj)
+void Module::genobjfile(bool multiobj)
 {
     //EEcontext *ee = env->getEEcontext();
 
@@ -296,8 +301,8 @@ void Module::genobjfile(int multiobj)
 
     if (ident == Id::entrypoint)
     {
-        char v = global.params.verbose;
-        global.params.verbose = 0;
+        bool v = global.params.verbose;
+        global.params.verbose = false;
 
         for (size_t i = 0; i < members->dim; i++)
         {
@@ -335,7 +340,7 @@ void Module::genobjfile(int multiobj)
         assert(m);
         if (m->sictor || m->sctor || m->sdtor || m->ssharedctor || m->sshareddtor)
         {
-            Symbol *s = m->toSymbol();
+            Symbol *s = toSymbol(m);
             //objextern(s);
             //if (!s->Sxtrnnum) objextdef(s->Sident);
             if (!s->Sxtrnnum)
@@ -422,7 +427,7 @@ void Module::genobjfile(int multiobj)
                       el_long(TYuchar, global.params.covPercent),
                       ecov,
                       ebcov,
-                      toEfilename(),
+                      toEfilename(this),
                       NULL);
         e = el_bin(OPcall, TYvoid, el_var(rtlsym[RTLSYM_DCOVER2]), e);
         eictor = el_combine(e, eictor);
@@ -463,7 +468,8 @@ void Module::genobjfile(int multiobj)
     }
 
     if (global.params.multiobj)
-    {   /* This is necessary because the main .obj for this module is written
+    {
+        /* This is necessary because the main .obj for this module is written
          * first, but determining whether marray or massert or munittest are needed is done
          * possibly later in the doppelganger modules.
          * Another way to fix it is do the main one last.
@@ -479,6 +485,16 @@ void Module::genobjfile(int multiobj)
     if (!global.params.betterC /*|| needModuleInfo()*/)
         genmoduleinfo();
 
+    genhelpers(false);
+
+    objmod->termfile();
+}
+
+void Module::genhelpers(bool iscomdat)
+{
+    if (global.params.betterC)
+        return;
+
     // If module assert
     for (int i = 0; i < 3; i++)
     {
@@ -488,8 +504,8 @@ void Module::genobjfile(int multiobj)
         switch (i)
         {
             case 0:     ma = marray;    rt = RTLSYM_DARRAY;     bc = BCexit; break;
-            case 1:     ma = massert;   rt = RTLSYM_DASSERTM;   bc = BCexit; break;
-            case 2:     ma = munittest; rt = RTLSYM_DUNITTESTM; bc = BCret;  break;
+            case 1:     ma = massert;   rt = RTLSYM_DASSERT;    bc = BCexit; break;
+            case 2:     ma = munittest; rt = RTLSYM_DUNITTEST;  bc = BCret;  break;
             default:    assert(0);
         }
 
@@ -518,7 +534,7 @@ void Module::genobjfile(int multiobj)
                 elinnum = el_var(sp);
             }
 
-            elem *efilename = el_ptr(toSymbol());
+            elem *efilename = toEfilename(this);
 
             elem *e = el_var(rtlsym[rt]);
             e = el_bin(OPcall, TYvoid, e, el_param(elinnum, efilename));
@@ -528,16 +544,13 @@ void Module::genobjfile(int multiobj)
             b->Belem = e;
             ma->Sfunc->Fstartline.Sfilename = arg;
             ma->Sfunc->Fstartblock = b;
-            ma->Sclass = SCglobal;
+            ma->Sclass = iscomdat ? SCcomdat : SCglobal;
             ma->Sfl = 0;
             ma->Sflags |= rtlsym[rt]->Sflags & SFLexit;
             writefunc(ma);
         }
     }
-
-    objmod->termfile();
 }
-
 
 /**************************************
  * Search for a druntime array op
@@ -727,26 +740,24 @@ int isDruntimeArrayOp(Identifier *ident)
 
 /* ================================================================== */
 
-void FuncDeclaration::toObjFile(int multiobj)
+void FuncDeclaration::toObjFile(bool multiobj)
 {
-    FuncDeclaration *func = this;
-    ClassDeclaration *cd = func->parent->isClassDeclaration();
+    ClassDeclaration *cd = parent->isClassDeclaration();
     int reverse;
-    int has_arguments;
 
-    //printf("FuncDeclaration::toObjFile(%p, %s.%s)\n", func, parent->toChars(), func->toChars());
+    //printf("FuncDeclaration::toObjFile(%p, %s.%s)\n", this, parent->toChars(), toChars());
 
-    //if (type) printf("type = %s\n", func->type->toChars());
+    //if (type) printf("type = %s\n", type->toChars());
 #if 0
-    //printf("line = %d\n",func->getWhere() / LINEINC);
+    //printf("line = %d\n", getWhere() / LINEINC);
     EEcontext *ee = env->getEEcontext();
     if (ee->EEcompile == 2)
     {
-        if (ee->EElinnum < (func->getWhere() / LINEINC) ||
-            ee->EElinnum > (func->endwhere / LINEINC)
+        if (ee->EElinnum < (getWhere() / LINEINC) ||
+            ee->EElinnum > (endwhere / LINEINC)
            )
             return;             // don't compile this function
-        ee->EEfunc = func->toSymbol();
+        ee->EEfunc = toSymbol(this);
     }
 #endif
 
@@ -763,11 +774,11 @@ void FuncDeclaration::toObjFile(int multiobj)
     if (global.errors)
         return;
 
-    if (!func->fbody)
-    {
+    if (!fbody)
         return;
-    }
-    if (func->isUnitTestDeclaration() && !global.params.useUnitTests)
+
+    UnitTestDeclaration *ud = isUnitTestDeclaration();
+    if (ud && !global.params.useUnitTests)
         return;
 
     if (multiobj && !isStaticDtorDeclaration() && !isStaticCtorDeclaration())
@@ -788,10 +799,17 @@ void FuncDeclaration::toObjFile(int multiobj)
     assert(semanticRun == PASSsemantic3done);
     assert(ident != Id::empty);
 
-    if (!needsCodegen())
-        return;
+    for (FuncDeclaration *fd = this; fd; )
+    {
+        if (!fd->isInstantiated() && fd->inNonRoot())
+            return;
+        if (fd->isNested())
+            fd = fd->toParent2()->isFuncDeclaration();
+        else
+            break;
+    }
 
-    FuncDeclaration *fdp = func->toParent2()->isFuncDeclaration();
+    FuncDeclaration *fdp = toParent2()->isFuncDeclaration();
     if (isNested())
     {
         if (fdp && fdp->semanticRun < PASSobj)
@@ -802,9 +820,9 @@ void FuncDeclaration::toObjFile(int multiobj)
             /* Can't do unittest's out of order, they are order dependent in that their
              * execution is done in lexical order.
              */
-            if (fdp->isUnitTestDeclaration())
+            if (UnitTestDeclaration *udp = fdp->isUnitTestDeclaration())
             {
-                fdp->deferred.push(func);
+                udp->deferredNested.push(this);
                 return;
             }
         }
@@ -820,13 +838,13 @@ void FuncDeclaration::toObjFile(int multiobj)
     semanticRun = PASSobj;
 
     if (global.params.verbose)
-        fprintf(global.stdmsg, "function  %s\n",func->toPrettyChars());
+        fprintf(global.stdmsg, "function  %s\n", toPrettyChars());
 
-    Symbol *s = func->toSymbol();
+    Symbol *s = toSymbol(this);
     func_t *f = s->Sfunc;
 
     // tunnel type of "this" to debug info generation
-    if (AggregateDeclaration* ad = func->parent->isAggregateDeclaration())
+    if (AggregateDeclaration* ad = parent->isAggregateDeclaration())
     {
         ::type* t = Type_toCtype(ad->getType());
         if(cd)
@@ -884,14 +902,14 @@ void FuncDeclaration::toObjFile(int multiobj)
                                 : global.params.defaultlibname;
 
         // Pull in RTL startup code (but only once)
-        if (func->isMain() && onlyOneMain(loc))
+        if (isMain() && onlyOneMain(loc))
         {
 #if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
             objmod->external_def("_main");
             objmod->ehsections();   // initialize exception handling sections
 #endif
 #if TARGET_WINDOS
-            if (I64)
+            if (global.params.mscoff)
             {
                 objmod->external_def("main");
                 objmod->ehsections();   // initialize exception handling sections
@@ -908,7 +926,7 @@ void FuncDeclaration::toObjFile(int multiobj)
         else if (strcmp(s->Sident, "main") == 0 && linkage == LINKc)
         {
 #if TARGET_WINDOS
-            if (I64)
+            if (global.params.mscoff)
             {
                 objmod->includelib("LIBCMT");
                 objmod->includelib("OLDNAMES");
@@ -922,9 +940,9 @@ void FuncDeclaration::toObjFile(int multiobj)
             s->Sclass = SCglobal;
         }
 #if TARGET_WINDOS
-        else if (func->isWinMain() && onlyOneMain(loc))
+        else if (isWinMain() && onlyOneMain(loc))
         {
-            if (I64)
+            if (global.params.mscoff)
             {
                 objmod->includelib("uuid");
                 objmod->includelib("LIBCMT");
@@ -940,9 +958,9 @@ void FuncDeclaration::toObjFile(int multiobj)
         }
 
         // Pull in RTL startup code
-        else if (func->isDllMain() && onlyOneMain(loc))
+        else if (isDllMain() && onlyOneMain(loc))
         {
-            if (I64)
+            if (global.params.mscoff)
             {
                 objmod->includelib("uuid");
                 objmod->includelib("LIBCMT");
@@ -971,7 +989,7 @@ void FuncDeclaration::toObjFile(int multiobj)
             break;
     }
 
-    IRState irs(m, func);
+    IRState irs(m, this);
     Dsymbols deferToObj;                   // write these to OBJ file later
     irs.deferToObj = &deferToObj;
 
@@ -985,10 +1003,9 @@ void FuncDeclaration::toObjFile(int multiobj)
     //printf("linkage = %d, tyf = x%x\n", linkage, tyf);
     reverse = tyrevfunc(s->Stype->Tty);
 
-    assert(func->type->ty == Tfunction);
-    tf = (TypeFunction *)(func->type);
-    has_arguments = (tf->linkage == LINKd) && (tf->varargs == 1);
-    retmethod = tf->retStyle();
+    assert(type->ty == Tfunction);
+    tf = (TypeFunction *)(type);
+    retmethod = retStyle(tf);
     if (retmethod == RETstack)
     {
         // If function returns a struct, put a pointer to that
@@ -1000,7 +1017,7 @@ void FuncDeclaration::toObjFile(int multiobj)
         sprintf(hiddenparam,"__HID%d",++hiddenparami);
         shidden = symbol_name(hiddenparam,SCparameter,thidden);
         shidden->Sflags |= SFLtrue | SFLfree;
-        if (func->nrvo_can && func->nrvo_var && func->nrvo_var->nestedrefs.dim)
+        if (nrvo_can && nrvo_var && nrvo_var->nestedrefs.dim)
             type_setcv(&shidden->Stype, shidden->Stype->Tty | mTYvolatile);
         irs.shidden = shidden;
         this->shidden = shidden;
@@ -1016,7 +1033,7 @@ void FuncDeclaration::toObjFile(int multiobj)
     if (vthis)
     {
         assert(!vthis->csym);
-        sthis = vthis->toSymbol();
+        sthis = toSymbol(vthis);
         irs.sthis = sthis;
         if (!(f->Fflags3 & Fnested))
             f->Fflags3 |= Fmember;
@@ -1040,7 +1057,7 @@ void FuncDeclaration::toObjFile(int multiobj)
     pi = 0;
     if (v_arguments)
     {
-        params[pi] = v_arguments->toSymbol();
+        params[pi] = toSymbol(v_arguments);
         pi += 1;
     }
     if (parameters)
@@ -1050,7 +1067,7 @@ void FuncDeclaration::toObjFile(int multiobj)
             VarDeclaration *v = (*parameters)[i];
             //printf("param[%d] = %p, %s\n", i, v, v->toChars());
             assert(!v->csym);
-            params[pi + i] = v->toSymbol();
+            params[pi + i] = toSymbol(v);
         }
         pi += parameters->dim;
     }
@@ -1133,11 +1150,11 @@ void FuncDeclaration::toObjFile(int multiobj)
         free(params);
     params = NULL;
 
-    if (func->fbody)
+    if (fbody)
     {
         localgot = NULL;
 
-        Statement *sbody = func->fbody;
+        Statement *sbody = fbody;
 
         Blockx bx;
         memset(&bx,0,sizeof(bx));
@@ -1146,7 +1163,7 @@ void FuncDeclaration::toObjFile(int multiobj)
         bx.funcsym = s;
         bx.scope_index = -1;
         bx.classdec = cd;
-        bx.member = func;
+        bx.member = this;
         bx.module = getModule();
         irs.blx = &bx;
 
@@ -1182,18 +1199,18 @@ void FuncDeclaration::toObjFile(int multiobj)
             Statement *sf = ExpStatement::create(loc, e);
 
             Statement *stf;
-            if (sbody->blockExit(tf->isnothrow) == BEfallthru)
+            if (sbody->blockExit(this, false) == BEfallthru)
                 stf = CompoundStatement::create(Loc(), sbody, sf);
             else
                 stf = TryFinallyStatement::create(Loc(), sbody, sf);
             sbody = CompoundStatement::create(Loc(), sp, stf);
         }
 
-        buildClosure(&irs);
+        buildClosure(this, &irs);
 
 #if TARGET_WINDOS
-        if (func->isSynchronized() && cd && config.flags2 & CFG2seh &&
-            !func->isStatic() && !sbody->usesEH() && !global.params.trace)
+        if (isSynchronized() && cd && config.flags2 & CFG2seh &&
+            !isStatic() && !sbody->usesEH() && !global.params.trace)
         {
             /* The "jmonitor" hack uses an optimized exception handling frame
              * which is a little shorter than the more general EH frame.
@@ -1261,7 +1278,7 @@ void FuncDeclaration::toObjFile(int multiobj)
     }
 
     // If unit test
-    if (isUnitTestDeclaration())
+    if (ud)
     {
         stests.push(s);
     }
@@ -1286,10 +1303,13 @@ void FuncDeclaration::toObjFile(int multiobj)
         s->toObjFile(0);
     }
 
-    for (size_t i = 0; i < deferred.dim; i++)
+    if (ud)
     {
-        FuncDeclaration *fd = deferred[i];
-        fd->toObjFile(0);
+        for (size_t i = 0; i < ud->deferredNested.dim; i++)
+        {
+            FuncDeclaration *fd = ud->deferredNested[i];
+            fd->toObjFile(0);
+        }
     }
 
 #if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
@@ -1331,10 +1351,10 @@ bool onlyOneMain(Loc loc)
  * Return back end type corresponding to D front end type.
  */
 
-unsigned Type::totym()
-{   unsigned t;
-
-    switch (ty)
+unsigned totym(Type *tx)
+{
+    unsigned t;
+    switch (tx->ty)
     {
         case Tvoid:     t = TYvoid;     break;
         case Tint8:     t = TYschar;    break;
@@ -1361,8 +1381,8 @@ unsigned Type::totym()
         case Tdchar:    t = TYdchar;    break;
 #else
         case Tdchar:
-                t = (global.params.symdebug == 1) ? TYdchar : TYulong;
-                break;
+            t = (global.params.symdebug == 1) ? TYdchar : TYulong;
+            break;
 #endif
 
         case Taarray:   t = TYaarray;   break;
@@ -1372,19 +1392,23 @@ unsigned Type::totym()
         case Tdelegate: t = TYdelegate; break;
         case Tarray:    t = TYdarray;   break;
         case Tsarray:   t = TYstruct;   break;
-        case Tstruct:   t = TYstruct;   break;
+
+        case Tstruct:
+            t = TYstruct;
+            if (tx->toDsymbol(NULL)->ident == Id::__c_long_double)
+                t = TYdouble;
+            break;
 
         case Tenum:
-        case Ttypedef:
-             t = toBasetype()->totym();
-             break;
+            t = totym(tx->toBasetype());
+            break;
 
         case Tident:
         case Ttypeof:
 #ifdef DEBUG
-            printf("ty = %d, '%s'\n", ty, toChars());
+            printf("ty = %d, '%s'\n", tx->ty, tx->toChars());
 #endif
-            error(Loc(), "forward reference of %s", toChars());
+            error(Loc(), "forward reference of %s", tx->toChars());
             t = TYint;
             break;
 
@@ -1393,10 +1417,12 @@ unsigned Type::totym()
             break;
 
         case Tvector:
-        {   TypeVector *tv = (TypeVector *)this;
+        {
+            TypeVector *tv = (TypeVector *)tx;
             TypeBasic *tb = tv->elementType();
             switch (tb->ty)
-            {   case Tvoid:
+            {
+                case Tvoid:
                 case Tint8:     t = TYschar16;  break;
                 case Tuns8:     t = TYuchar16;  break;
                 case Tint16:    t = TYshort8;   break;
@@ -1411,33 +1437,57 @@ unsigned Type::totym()
                     assert(0);
                     break;
             }
-            static bool once = false;
-            if (!once)
-            {
-                if (global.params.is64bit || global.params.isOSX)
-                    ;
-                else
-                {   error(Loc(), "SIMD vector types not supported on this platform");
-                    once = true;
-                }
-                if (tv->size(Loc()) == 32)
-                {   error(Loc(), "AVX vector types not supported");
-                    once = true;
-                }
-            }
+            assert(global.params.is64bit || global.params.isOSX);
             break;
         }
 
+        case Tfunction:
+        {
+            TypeFunction *tf = (TypeFunction *)tx;
+            switch (tf->linkage)
+            {
+                case LINKwindows:
+                    if (global.params.is64bit)
+                        goto Lc;
+                    t = (tf->varargs == 1) ? TYnfunc : TYnsfunc;
+                    break;
+
+                case LINKpascal:
+                    t = (tf->varargs == 1) ? TYnfunc : TYnpfunc;
+                    break;
+
+                case LINKc:
+                case LINKcpp:
+                Lc:
+                    t = TYnfunc;
+#if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
+                    if (I32 && retStyle(tf) == RETstack)
+                        t = TYhfunc;
+#endif
+                    break;
+
+                case LINKd:
+                    t = (tf->varargs == 1) ? TYnfunc : TYjfunc;
+                    break;
+
+                default:
+                    printf("linkage = %d\n", tf->linkage);
+                    assert(0);
+            }
+            if (tf->isnothrow)
+                t |= mTYnothrow;
+            return t;
+        }
         default:
 #ifdef DEBUG
-            printf("ty = %d, '%s'\n", ty, toChars());
+            printf("ty = %d, '%s'\n", tx->ty, tx->toChars());
             halt();
 #endif
             assert(0);
     }
 
     // Add modifiers
-    switch (mod)
+    switch (tx->mod)
     {
         case 0:
             break;
@@ -1464,80 +1514,42 @@ unsigned Type::totym()
     return t;
 }
 
-unsigned TypeFunction::totym()
-{
-    tym_t tyf;
-
-    //printf("TypeFunction::totym(), linkage = %d\n", linkage);
-    switch (linkage)
-    {
-        case LINKwindows:
-            tyf = (varargs == 1) ? TYnfunc : TYnsfunc;
-            break;
-
-        case LINKpascal:
-            tyf = (varargs == 1) ? TYnfunc : TYnpfunc;
-            break;
-
-        case LINKc:
-        case LINKcpp:
-            tyf = TYnfunc;
-#if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
-            if (I32 && retStyle() == RETstack)
-                tyf = TYhfunc;
-#endif
-            break;
-
-        case LINKd:
-            tyf = (varargs == 1) ? TYnfunc : TYjfunc;
-            break;
-
-        default:
-            printf("linkage = %d\n", linkage);
-            assert(0);
-    }
-    if (isnothrow)
-        tyf |= mTYnothrow;
-    return tyf;
-}
-
 /**************************************
  */
 
-Symbol *Type::toSymbol()
+Symbol *toSymbol(Type *t)
 {
+    if (t->ty == Tclass)
+    {
+        return toSymbol(((TypeClass *)t)->sym);
+    }
     assert(0);
     return NULL;
-}
-
-Symbol *TypeClass::toSymbol()
-{
-    return sym->toSymbol();
 }
 
 /**************************************
  * Generate elem that is a pointer to the module file name.
  */
 
-elem *Module::toEfilename()
-{   elem *efilename;
-
-    if (!sfilename)
+elem *toEfilename(Module *m)
+{
+    elem *efilename;
+    if (!m->sfilename)
     {
         dt_t *dt = NULL;
-        char *id = srcfile->toChars();
+        char *id = m->srcfile->toChars();
         size_t len = strlen(id);
         dtsize_t(&dt, len);
         dtabytes(&dt,TYnptr, 0, len + 1, id);
 
-        sfilename = symbol_generate(SCstatic,type_fake(TYdarray));
-        sfilename->Sdt = dt;
-        sfilename->Sfl = FLdata;
-        out_readonly(sfilename);
-        outdata(sfilename);
+        m->sfilename = symbol_generate(SCstatic,type_fake(TYdarray));
+        m->sfilename->Sdt = dt;
+        m->sfilename->Sfl = FLdata;
+        out_readonly(m->sfilename);
+        outdata(m->sfilename);
     }
 
-    efilename = (config.exe == EX_WIN64) ? el_ptr(sfilename) : el_var(sfilename);
+    efilename = (config.exe == EX_WIN64) ? el_ptr(m->sfilename) : el_var(m->sfilename);
     return efilename;
 }
 

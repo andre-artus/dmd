@@ -58,6 +58,8 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <CompileAs>CompileAsCpp</CompileAs>
       <ForcedIncludeFiles>vcbuild\warnings.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <InlineFunctionExpansion Condition="'$(Configuration)'=='Debug'">Disabled</InlineFunctionExpansion>
+      <Optimization Condition="'$(Configuration)'=='Debug'">Disabled</Optimization>
     </ClCompile>
     <Link>
       <AdditionalOptions>/LARGEADDRESSAWARE %(AdditionalOptions)</AdditionalOptions>
@@ -98,6 +100,7 @@
     <ClCompile Include="eh.c" />
     <ClCompile Include="entity.c" />
     <ClCompile Include="enum.c" />
+    <ClCompile Include="errors.c" />
     <ClCompile Include="expression.c" />
     <ClCompile Include="func.c" />
     <ClCompile Include="glue.c" />
@@ -123,6 +126,8 @@
     <ClCompile Include="module.c" />
     <ClCompile Include="msc.c" />
     <ClCompile Include="mtype.c" />
+    <ClCompile Include="nogc.c" />
+    <ClCompile Include="nspace.c" />
     <ClCompile Include="opover.c" />
     <ClCompile Include="optimize.c" />
     <ClCompile Include="parse.c" />
@@ -217,6 +222,7 @@
     </ClCompile>
     <ClCompile Include="root\aav.c" />
     <ClCompile Include="root\async.c" />
+    <ClCompile Include="root\checkedint.c" />
     <ClCompile Include="root\dmgcmem.c">
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
@@ -287,6 +293,7 @@
     <ClInclude Include="doc.h" />
     <ClInclude Include="dsymbol.h" />
     <ClInclude Include="enum.h" />
+    <ClInclude Include="errors.h" />
     <ClInclude Include="expression.h" />
     <ClInclude Include="hdrgen.h" />
     <ClInclude Include="identifier.h" />
@@ -301,6 +308,7 @@
     <ClInclude Include="mars.h" />
     <ClInclude Include="module.h" />
     <ClInclude Include="mtype.h" />
+    <ClInclude Include="nspace.h" />
     <ClInclude Include="objfile.h" />
     <ClInclude Include="parse.h" />
     <ClInclude Include="scope.h" />
@@ -346,6 +354,7 @@
     <ClInclude Include="tk\vec.h" />
     <ClInclude Include="root\aav.h" />
     <ClInclude Include="root\async.h" />
+    <ClInclude Include="root\checkedint.h" />
     <ClInclude Include="root\longdouble.h" />
     <ClInclude Include="root\port.h" />
     <ClInclude Include="root\rmem.h" />
